@@ -1,0 +1,9 @@
+import {useEffect,useState} from 'react';
+
+type EventItem={event_id:string;period:number|null;minute:number|null;second:number|null;type:string|null;team:string|null;player:string|null;location:number[]|null};
+type Chain={status:string;reason?:string;missing_event_ids?:string[];items:EventItem[];warning?:string};
+export default function EvidenceChain({startEventId}:{startEventId:string}){
+ const [open,setOpen]=useState(false),[data,setData]=useState<Chain|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
+ useEffect(()=>{if(!open)return;const c=new AbortController();setLoading(true);setError('');fetch('/api/v1/evidence/chain?'+new URLSearchParams({start_event_id:startEventId}),{signal:c.signal}).then(async r=>{if(!r.ok)throw new Error('Kanıt zinciri alınamadı ('+r.status+')');setData(await r.json())}).catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)});return()=>c.abort()},[open,startEventId]);
+ return <div className="evidence-chain"><button type="button" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{open?'Kanıt zincirini kapat':'Kanıt olaylarını incele'}</button>{open&&(loading?<p role="status">Kanıtlar yükleniyor…</p>:error?<p role="alert">{error}</p>:data?.status!=='provisional'?<p role="status">{data?.reason||'Kanıtlar doğrulanamadı.'} {data?.missing_event_ids?.length?'Eksik ID: '+data.missing_event_ids.join(', '):''}</p>:<><p className="evidence-warning">{data.warning}</p><ol>{data.items.map((e,i)=><li key={e.event_id+'-'+i}><strong>{e.minute??'—'}′ {e.type||'Olay'}</strong> · {e.team||'Takım bilinmiyor'} · {e.player||'Oyuncu bilinmiyor'}<div><small>Event ID: {e.event_id} · Devre: {e.period??'—'} · Konum: {e.location?.join(', ')||'Yok'}</small></div></li>)}</ol></>)}</div>
+}

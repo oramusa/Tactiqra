@@ -1,0 +1,15 @@
+import DataQualityPanel from './DataQualityPanel';
+import EvidenceChain from './EvidenceChain';
+import EventExplorer from './EventExplorer';
+import React,{useEffect,useState} from 'react';
+type Summary={status:string;match_id:string|null;event_count:number|null;transition_count:number|null};
+type Quality={status:string;reviewed_count:number;sample_precision:number|null;sample_precision_denominator?:number;warning?:string};
+type T={start_event_id:string;period:number;shot:boolean;goal:boolean;window_seconds:number;end_reason:string;verification_status:string;evidence_event_ids:string[]};
+export default function HistoricalEvidence(){
+ const [summary,setSummary]=useState<Summary|null>(null),[items,setItems]=useState<T[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[quality,setQuality]=useState<Quality|null>(null);
+ useEffect(()=>{const c=new AbortController();Promise.all([fetch('/api/v1/evidence/summary',{signal:c.signal}),fetch('/api/v1/evidence/transitions',{signal:c.signal}),fetch('/api/v1/evidence/review-quality',{signal:c.signal})]).then(async ([a,b,q])=>{if(!a.ok||!b.ok||!q.ok)throw new Error('Evidence API unavailable');const x=await a.json(),y=await b.json();setSummary(x);setItems(y.items||[]);setQuality(await q.json())}).catch(e=>{if(e.name!=='AbortError')setError(e.message)}).finally(()=>{if(!c.signal.aborted)setLoading(false)});return()=>c.abort()},[]);
+ if(loading)return <p role="status">Historical evidence yükleniyor…</p>;
+ if(error)return <p role="alert">{error}</p>;
+ if(!summary||summary.status==='insufficient_data')return <div className="evidence-empty"><DataQualityPanel/><h4>Event data yok</h4><p>Historical pilot raporu bağlanmadı. Skorlardan taktik bulgu üretilmez.</p></div>;
+ return <div className="evidence-block"><DataQualityPanel/><p className="evidence-warning"><strong>PROVISIONAL · DOĞRULANMADI</strong><br/>Bu ayrı bir tarihsel pilot raporudur; seçili güncel takımın analizi değildir.</p><p><a href="/api/v1/evidence/review-export?limit=10" download>İlk 10 pozisyonu inceleme CSV olarak indir</a></p><p><strong>Manuel kalite incelemesi:</strong> {quality?.status==='sample_review_complete'?`İncelenen ${quality.reviewed_count} aday; örneklem precision ${(100*(quality.sample_precision??0)).toFixed(1)}% (n=${quality.sample_precision_denominator})`:'Henüz yeterli manuel doğrulama yok; doğruluk oranı gösterilmiyor.'} Recall ölçülmedi.</p><p>Historical match: {summary.match_id} · Events: {summary.event_count??'—'} · Transitions: {summary.transition_count??'—'}</p>{items.length===0?<p>Rapor geçiş içermiyor.</p>:items.map((t,i)=><details key={`${t.start_event_id}-${i}`}><summary>Period {t.period} · {t.shot?'Shot':'No shot'} {t.goal?'· Goal':''} · {t.window_seconds}s</summary><p>Start: {t.start_event_id} · End: {t.end_reason} · Status: {t.verification_status}</p><p>Evidence IDs: {Array.isArray(t.evidence_event_ids)?t.evidence_event_ids.join(', '):'Unavailable'}</p><EvidenceChain startEventId={String(t.start_event_id)}/></details>)}<EventExplorer/></div>;
+}

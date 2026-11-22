@@ -1,0 +1,7 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE IF NOT EXISTS competitions (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, country_code CHAR(2) NOT NULL);
+CREATE TABLE IF NOT EXISTS teams (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, country_code CHAR(2), category TEXT NOT NULL DEFAULT 'senior_men');
+CREATE TABLE IF NOT EXISTS provider_entities (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), provider TEXT NOT NULL, entity_type TEXT NOT NULL, provider_id TEXT NOT NULL, internal_id UUID NOT NULL, UNIQUE(provider,entity_type,provider_id));
+CREATE TABLE IF NOT EXISTS seasons (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), competition_id UUID NOT NULL REFERENCES competitions(id), start_year INTEGER NOT NULL, UNIQUE(competition_id,start_year));
+CREATE TABLE IF NOT EXISTS matches (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), season_id UUID NOT NULL REFERENCES seasons(id), home_team_id UUID NOT NULL REFERENCES teams(id), away_team_id UUID NOT NULL REFERENCES teams(id), kickoff_at TIMESTAMPTZ NOT NULL, status TEXT NOT NULL, home_score INTEGER, away_score INTEGER, CHECK(home_team_id <> away_team_id));
+CREATE TABLE IF NOT EXISTS source_records (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), provider TEXT NOT NULL, resource_type TEXT NOT NULL, external_id TEXT NOT NULL, fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload_hash TEXT NOT NULL, payload JSONB NOT NULL, UNIQUE(provider,resource_type,external_id,payload_hash));

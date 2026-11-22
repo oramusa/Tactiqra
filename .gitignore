@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# React / Node
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Local databases and data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+data/raw/
+data/downloads/
+downloads/
+exports/
+*.tsbuildinfo

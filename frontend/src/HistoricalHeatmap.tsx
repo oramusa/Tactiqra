@@ -6,9 +6,9 @@ type Catalog={status:string;teams:{id:number;name:string;players:{id:number;name
 export default function HistoricalHeatmap(){
  const [catalog,setCatalog]=useState<Catalog|null>(null);
  useEffect(()=>{const controller=new AbortController();fetch('/api/v1/heatmap/catalog',{signal:controller.signal}).then(r=>{if(!r.ok)throw new Error('Catalog unavailable');return r.json()}).then(setCatalog).catch(()=>{});return()=>controller.abort()},[]);
- const selectedTeam=catalog?.teams.find(t=>String(t.id)===team);
  const [compareTeam,setCompareTeam]=useState('');const [comparison,setComparison]=useState<CompareData|null>(null);
  const [team,setTeam]=useState('');const [player,setPlayer]=useState('');const [period,setPeriod]=useState('');const [kind,setKind]=useState('');const [data,setData]=useState<MapData|null>(null);
+ const selectedTeam=catalog?.teams.find(t=>String(t.id)===team);
  const [error,setError]=useState('');const [loading,setLoading]=useState(false);
  const [normalize,setNormalize]=useState(false);const [direction,setDirection]=useState<DirectionStatus|null>(null);const [directionLoading,setDirectionLoading]=useState(false);
  useEffect(()=>{setData(null);setComparison(null);setError('')},[team,compareTeam,player,period,kind,normalize]);
@@ -22,7 +22,7 @@ export default function HistoricalHeatmap(){
    if(compareTeam && !player){const compareParams=new URLSearchParams({team_a:team,team_b:compareTeam});if(kind)compareParams.set('event_type',kind);if(period)compareParams.set('period',period);if(normalize)compareParams.set('normalize','true');const cr=await fetch('/api/v1/heatmap/compare?'+compareParams.toString());if(!cr.ok)throw new Error('Comparison API unavailable');setComparison(await cr.json())}
   }catch(e){setError(e instanceof Error?e.message:String(e))}finally{setLoading(false)}};
  const max=data?.grid?Math.max(0,...data.grid.flat()):0;
- return <section className="heatmap-panel"><h3>Historical Event Heatmap</h3>
+ return <><style>{tqStyles}</style><section className="heatmap-panel"><h3>Historical Event Heatmap</h3>
   <p className="heatmap-note">Bağımsız tarihsel pilot. Yukarıda seçilen güncel takımın verisi değildir. Oyuncu tracking haritası değildir.</p>
   <div className="heatmap-controls"><label>StatsBomb takımı{catalog?.teams.length?<select value={team} onChange={e=>{setTeam(e.target.value);setPlayer('')}}><option value="">Takım seç</option>{catalog.teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>:<input inputMode="numeric" value={team} onChange={e=>setTeam(e.target.value)} placeholder="Yerel veri yoksa takım ID"/>}</label>
   <label>Rakip takım (isteğe bağlı)<select value={compareTeam} onChange={e=>setCompareTeam(e.target.value)}><option value="">Karşılaştırma yok</option>{catalog?.teams.filter(t=>String(t.id)!==team).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
@@ -34,20 +34,49 @@ export default function HistoricalHeatmap(){
   {team&&<p className="heatmap-note" role="status">{directionLoading?'Yön kanıtı kontrol ediliyor…':direction?.available?`Yön doğrulandı: ${direction.evidence_note}`:`Normalizasyon kapalı: ${direction?.reason||'Doğrulanmış yön bilgisi yok'}`}</p>}
   {error&&<p role="alert">{error}</p>}
   {compareTeam&&player&&<p role="status">Rakip karşılaştırması yalnızca takım görünümünde yapılır.</p>}
-  {comparison&&<section aria-label="Takım yoğunluk karşılaştırması"><h4>Takım karşılaştırması</h4>{comparison.status==='insufficient_data'?<p role="status">Karşılaştırma için iki takımda da konumlu olay bulunmalı.</p>:<><p>Takım A: {comparison.team_a?.plotted_events} olay · Takım B: {comparison.team_b?.plotted_events} olay · Fark: {comparison.delta_total}</p><ComparisonPitch comparison={comparison} normalized={normalize}/><details><summary>Bölge bazında sayısal fark (A − B)</summary><pre className="heatmap-grid-text">{comparison.delta_grid?.map(row=>row.join('  ')).join('\n')}</pre></details></>}<p className="heatmap-note">{comparison.warning}</p></section>}
+  {comparison&&<section className="tq-comparison" aria-label="Takım yoğunluk karşılaştırması"><div className="tq-subhead"><h4>Takım karşılaştırması</h4><span>Kaynak olay yoğunluğu · Taktik üstünlük değildir</span></div>{comparison.status==='insufficient_data'?<p role="status">Karşılaştırma için iki takımda da konumlu olay bulunmalı.</p>:<><div className="tq-metrics"><div><small>{selectedTeam?.name||'Takım A'}</small><strong>{comparison.team_a?.plotted_events??'—'}</strong><span>Konumlu olay</span></div><div><small>{catalog?.teams.find(t=>String(t.id)===compareTeam)?.name||'Takım B'}</small><strong>{comparison.team_b?.plotted_events??'—'}</strong><span>Konumlu olay</span></div><div><small>Fark (A − B)</small><strong>{comparison.delta_total??'—'}</strong><span>Ham olay sayısı</span></div></div><ComparisonPitch comparison={comparison} normalized={normalize}/><details className="tq-details"><summary>Bölge bazında sayısal fark (A − B)</summary><pre className="heatmap-grid-text">{comparison.delta_grid?.map(row=>row.join('  ')).join('\n')}</pre></details></>}{comparison.warning&&<p className="heatmap-note">{comparison.warning}</p>}</section>}
   {data?.status==='insufficient_data'&&<p role="status">Konum verisi bulunamadı. {data.reason||''}</p>}
-  {data?.grid&&data.status==='event_density'&&<><div className="heatmap-pitch" role="img" aria-label={`${data.plotted_events} olay içeren saha yoğunluk haritası; sayısal hücre tablosu aşağıda`}>
-    {data.grid.flatMap((row,r)=>row.map((value,c)=><span key={`${r}-${c}`} title={`Bölge ${r+1},${c+1}: ${value} olay`} style={{background:`rgba(239,106,75,${max?0.07+0.86*value/max:0})`}}/>))}
-   </div><p>{data.plotted_events} konumlu olay · {data.missing_location_events} eksik konum · {normalize?'Doğrulanmış yön bilgisiyle normalize edildi.':'Hücum yönü normalize edilmedi.'}</p>
-   <details><summary>Sayısal yoğunluk tablosu</summary><pre className="heatmap-grid-text">{data.grid.map(row=>row.join('  ')).join('\n')}</pre></details></>}
- </section>
+  {data?.grid&&data.status==='event_density'&&<section className="tq-visual"><div className="tq-subhead"><h4>{selectedTeam?.name||'Takım'} · Olay yoğunluğu</h4><span>{kind||'Tüm olaylar'} · {period?'Devre '+period:'Tüm maç'}</span></div><PitchHeatmap grid={data.grid} mode="single" /><p className="tq-legend">Düşük yoğunluk <span className="tq-scale"/> Yüksek yoğunluk</p><p className="heatmap-note">{data.plotted_events} konumlu olay · {data.missing_location_events} eksik konum · {normalize?'Doğrulanmış yön bilgisiyle normalize edildi.':'Hücum yönü normalize edilmedi.'}</p><details className="tq-details"><summary>Sayısal yoğunluk tablosu</summary><pre className="heatmap-grid-text">{data.grid.map(row=>row.join('  ')).join('\n')}</pre></details></section>}
+ </section></>
 }
 
+function PitchHeatmap({grid,mode}:{grid:number[][];mode:'single'|'difference'}){
+ const rows=grid.length,cols=grid[0]?.length||0;
+ if(!rows||!cols)return <p>Harita verisi yok.</p>;
+ const peak=Math.max(1,...grid.flat().map(Math.abs));
+ const cellW=600/cols,cellH=390/rows;
+ return <svg className="tq-pitch" viewBox="0 0 640 430" role="img" aria-label={mode==='single'?'Gerçek olay sayılarından hesaplanan saha yoğunluk haritası':'İki takımın ham koordinatlarda olay yoğunluğu farkı'}>
+ <defs><radialGradient id="tqWarm"><stop offset="0%" stopColor="#FFCA6B" stopOpacity=".93"/><stop offset="38%" stopColor="#F97D45" stopOpacity=".68"/><stop offset="100%" stopColor="#F97D45" stopOpacity="0"/></radialGradient><radialGradient id="tqCool"><stop offset="0%" stopColor="#61D4D0" stopOpacity=".82"/><stop offset="100%" stopColor="#61D4D0" stopOpacity="0"/></radialGradient></defs>
+ <rect x="0" y="0" width="640" height="430" rx="14" fill="#123F3A"/>
+ {Array.from({length:10},(_,i)=><rect key={i} x={20+i*60} y="20" width="60" height="390" fill={i%2?'#FFFFFF':'#000000'} opacity=".045"/>)}
+ <g stroke="#D4F1E9" strokeWidth="1.7" fill="none" opacity=".78"><rect x="20" y="20" width="600" height="390"/><path d="M320 20V410"/><circle cx="320" cy="215" r="64"/><circle cx="320" cy="215" r="2" fill="#D4F1E9"/><rect x="20" y="115" width="102" height="200"/><rect x="20" y="161" width="38" height="108"/><rect x="518" y="115" width="102" height="200"/><rect x="582" y="161" width="38" height="108"/><path d="M122 174 A58 58 0 0 1 122 256 M518 174 A58 58 0 0 0 518 256"/></g>
+ <g>{grid.flatMap((row,r)=>row.map((n,c)=>{if(!n)return null;const intensity=Math.abs(n)/peak;return <ellipse key={r+'-'+c} cx={20+(c+.5)*cellW} cy={20+(r+.5)*cellH} rx={cellW*1.6} ry={cellH*1.7} fill={mode==='difference'&&n<0?'url(#tqCool)':'url(#tqWarm)'} opacity={Math.min(.98,.14+Math.pow(intensity,.58)*.86)}><title>{'Bölge '+(r+1)+','+(c+1)+': '+n+' olay'}</title></ellipse>}))}</g>
+ <g stroke="#D4F1E9" strokeWidth="1.4" fill="none" opacity=".5"><rect x="20" y="20" width="600" height="390"/><path d="M320 20V410"/><circle cx="320" cy="215" r="64"/></g>
+ </svg>
+}
 function ComparisonPitch({comparison,normalized}:{comparison:CompareData;normalized:boolean}){
  const grid=comparison.delta_grid;
- if(!grid?.length || !grid[0]?.length)return <p role="status">Karşılaştırılacak bölge yok.</p>;
- const max=Math.max(1,...grid.flat().map(Math.abs));
- const positive=grid.flat().filter(n=>n>0).length;
- const negative=grid.flat().filter(n=>n<0).length;
- return <div className="comparison-visual"><div className="comparison-pitch" role="img" aria-label={`Takım A ${positive} bölgede, Takım B ${negative} bölgede daha fazla kayıtlı olaya sahip. Yeşil A, kırmızı B üstünlüğünü gösterir.`} style={{gridTemplateColumns:`repeat(${grid[0].length},minmax(0,1fr))`,gridTemplateRows:`repeat(${grid.length},minmax(0,1fr))`}}>{grid.flatMap((row,r)=>row.map((n,c)=><span key={`${r}-${c}`} title={`Bölge ${r+1}, ${c+1}: ${n>0?'+':''}${n} olay`} style={{background:n>0?`rgba(49,222,119,${0.12+0.83*n/max})`:n<0?`rgba(235,88,105,${0.12+0.83*(-n)/max})`:'rgba(139,155,173,0.16)'}}/>))}</div><p className="heatmap-note">🟩 Takım A daha fazla olay · 🟥 Takım B daha fazla olay · Gri eşit. Bu, üstün oyun veya gerçek oyuncu hareketi ölçümü değildir; {normalized?'hücum yönleri doğrulanmış bilgiyle normalize edildi.':'hücum yönleri normalize edilmedi.'}</p></div>;
+ if(!grid?.length||!grid[0]?.length)return <p role="status">Karşılaştırılacak bölge yok.</p>;
+ return <div className="tq-compare-pitch"><PitchHeatmap grid={grid} mode="difference"/><p className="tq-legend"><span className="tq-dot tq-orange"/> Takım A daha fazla <span className="tq-dot tq-teal"/> Takım B daha fazla</p><p className="heatmap-note">Ham olay farkları; oyun üstünlüğü veya tracking değildir. {normalized?'Hücum yönleri doğrulandı.':'Hücum yönleri normalize edilmedi.'}</p></div>;
 }
+const tqStyles=`
+.heatmap-panel{background:#101e30;border:1px solid #294158;border-radius:18px;padding:24px;color:#e8f1fa}
+.heatmap-panel h3{font-size:22px;letter-spacing:-.4px;margin:0 0 8px}
+.heatmap-panel .heatmap-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin:22px 0}
+.heatmap-panel .heatmap-controls label{display:flex;flex-direction:column;gap:8px;color:#b6c9d9;font-size:12px}
+.heatmap-panel select,.heatmap-panel input:not([type=checkbox]){background:#182b41;border:1px solid #39536b;color:#f3f8fd;border-radius:9px;padding:11px;min-height:42px}
+.heatmap-panel button{background:#367ef2;border:0;border-radius:9px;color:white;padding:12px 18px;font-weight:650;cursor:pointer}
+.heatmap-panel button:disabled{opacity:.5;cursor:not-allowed}
+.tq-comparison,.tq-visual{background:#142438;border:1px solid #2a4157;border-radius:15px;padding:18px;margin:20px 0}
+.tq-subhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:15px}
+.tq-subhead h4{font-size:17px;margin:0}.tq-subhead span{font-size:12px;color:#9eb3c7}
+.tq-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.tq-metrics>div{display:flex;flex-direction:column;gap:5px;background:#1b3046;border:1px solid #304a61;border-radius:11px;padding:14px}
+.tq-metrics small,.tq-metrics span{color:#aabfd0;font-size:12px}.tq-metrics strong{font-size:25px;letter-spacing:-.5px}
+.tq-pitch{display:block;width:100%;max-width:820px;margin:0 auto;border-radius:13px;overflow:hidden}
+.tq-legend{display:flex;gap:9px;align-items:center;justify-content:center;color:#aebfce;font-size:12px;margin:12px 0}
+.tq-scale{width:115px;height:9px;border-radius:10px;background:linear-gradient(90deg,#16443f,#ec7046,#ffd174)}
+.tq-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.tq-orange{background:#f89b55}.tq-teal{background:#61d4d0}
+.tq-details{margin-top:14px;color:#b9c9d9}.tq-details summary{cursor:pointer;padding:8px}.tq-details pre{overflow:auto}
+@media(max-width:600px){.heatmap-panel{padding:14px}.tq-metrics{grid-template-columns:1fr}.tq-comparison,.tq-visual{padding:12px}}
+`;

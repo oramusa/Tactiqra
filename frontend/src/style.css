@@ -108,3 +108,23 @@ footer{border-top:1px solid var(--tq-line);padding-top:20px;color:#84958b}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--tq-lime);outline-offset:3px}
 @media(max-width:900px){.sidebar{width:72px;padding:20px 8px}.brand{font-size:0}.brand-mark{font-size:24px}.content{padding:23px}.top{padding:20px 23px}.hero{padding:29px}}
 @media(max-width:600px){.sidebar{display:none}.hero{padding:25px 20px}.hero h2{letter-spacing:-1px}.section-intro{align-items:start;flex-direction:column}.top-kicker{font-size:9px}.league{padding:9px}.league span{display:none}}
+
+
+/* Dashboard V2: compact introduction, source-backed match overview */
+.hero{padding:26px 34px;margin-bottom:23px}
+.hero h2{font-size:clamp(28px,3vw,40px);line-height:1.12;margin:10px 0}
+.hero .intro{font-size:13px;margin-bottom:15px;line-height:1.6}
+.hero:after{width:300px;height:270px;bottom:-170px}
+.hero-chips span{padding:6px 10px}
+.overview-strip{margin:24px 0 4px;padding:22px;background:#121b19;border:1px solid #35443a;border-radius:16px}
+.overview-title{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:17px}
+.overview-title h3{font-size:23px;margin:5px 0}
+.overview-title p,.overview-source{font-size:12px;color:#9bada3;margin:0}
+.overview-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px}
+.overview-kpis>div{background:#19251f;border:1px solid #34483a;border-radius:12px;padding:17px;min-width:0}
+.overview-kpis span,.overview-kpis small{display:block;color:#9fb0a4;font-size:11px}
+.overview-kpis strong{display:block;color:#d2fa88;font-size:29px;font-variant-numeric:tabular-nums;margin:9px 0}
+.overview-kpis small{line-height:1.4}
+.overview-warning{color:#ffb9a9;font-size:12px}
+@media(max-width:1050px){.overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.hero{padding:22px 19px}.overview-strip{padding:15px}.overview-title{align-items:flex-start;flex-direction:column}.overview-kpis{gap:8px}.overview-kpis>div{padding:12px}.overview-kpis strong{font-size:24px}}

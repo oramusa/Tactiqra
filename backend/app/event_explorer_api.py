@@ -35,3 +35,38 @@ def explore_events(team_id: int | None = Query(None, gt=0),
     has_more = len(matches) > limit
     items = matches[:limit]
     return {'status': 'ready', 'source': 'local_historical_statsbomb_events', 'provisional': True, 'items': items, 'next_cursor': items[-1]['index'] + 1 if has_more else None, 'limit': limit, 'filters': {'team_id': team_id, 'event_type': event_type, 'period': period}}
+
+@router.get('/shots')
+def historical_shots():
+    """Source-bound shot coordinates and outcomes; no inferred goals or xG."""
+    raw = load_events()
+    if raw is None:
+        return {'status': 'insufficient_data', 'reason': 'Historical event JSON not configured', 'items': []}
+    items = []
+    for idx, event in enumerate(raw):
+        if not isinstance(event, dict) or (event.get('type') or {}).get('name') != 'Shot':
+            continue
+        team = event.get('team') or {}
+        player = event.get('player') or {}
+        shot = event.get('shot') or {}
+        outcome = shot.get('outcome') or {}
+        loc = event.get('location')
+        valid = isinstance(loc, list) and len(loc) >= 2 and all(type(v) in (int, float) and 0 <= v <= limit for v, limit in zip(loc[:2], (120, 80)))
+        items.append({
+            'event_id': event.get('id'), 'index': idx,
+            'minute': event.get('minute'), 'second': event.get('second'),
+            'period': event.get('period'),
+            'team': team.get('name') if isinstance(team, dict) else None,
+            'team_id': team.get('id') if isinstance(team, dict) else None,
+            'player': player.get('name') if isinstance(player, dict) else None,
+            'location': loc[:2] if valid else None,
+            'outcome': outcome.get('name') if isinstance(outcome, dict) else None,
+            'statsbomb_xg': shot.get('statsbomb_xg') if isinstance(shot.get('statsbomb_xg'), (float, int)) else None,
+        })
+    return {
+        'status': 'ready', 'source': 'local_historical_statsbomb_events',
+        'provisional': True, 'shot_count': len(items),
+        'located_count': sum(item['location'] is not None for item in items),
+        'items': items,
+        'notes': 'Raw source shot outcomes; not independently reconciled with official score. Shot direction not verified.',
+    }

@@ -1,6 +1,8 @@
 import {useEffect,useMemo,useState} from 'react';
 
 type Shot={event_id:string|null;index:number;minute:number|null;second:number|null;period:number|null;team:string|null;team_id:number|null;player:string|null;location:number[]|null;outcome:string|null;shot_type?:string|null;statsbomb_xg:number|null};
+type ContextEvent={event_id:string|null;index:number;minute:number|null;second:number|null;team:string|null;player:string|null;type:string|null;location:number[]|null};
+type ContextResponse={status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
 type ShotResponse={status:string;reason?:string;shot_count?:number;located_count?:number;items:Shot[];notes?:string};
 export default function HistoricalShotMap(){
  const [report,setReport]=useState<ShotResponse|null>(null);
@@ -8,6 +10,9 @@ export default function HistoricalShotMap(){
  const [team,setTeam]=useState('all');
  const [outcome,setOutcome]=useState('all');
  const [selected,setSelected]=useState<string|null>(null);
+ const [context,setContext]=useState<ContextResponse|null>(null);
+ const [contextLoading,setContextLoading]=useState(false);
+ const [contextError,setContextError]=useState('');
  const [layout,setLayout]=useState<'split'|'combined'>('split');
  
  useEffect(()=>{const c=new AbortController();fetch('/api/v1/event-explorer/shots',{signal:c.signal}).then(r=>{if(!r.ok)throw Error('Shot API unavailable ('+r.status+')');return r.json()}).then(setReport).catch(e=>{if(e.name!=='AbortError')setError(String(e))});return()=>c.abort()},[]);
@@ -41,7 +46,16 @@ export default function HistoricalShotMap(){
  const geometry=(s:Shot)=>{if(!s.location)return null;const [x,y]=s.location;const dx=(120-x)*105/120,dy=(y-40)*68/80;const post=7.32/2;
  const distance=Math.hypot(dx,dy);const angle=Math.abs(Math.atan2(post-dy,dx)-Math.atan2(-post-dy,dx))*180/Math.PI;
  return {distance,angle};};
- const selectShot=(shot:Shot)=>{setSelected(String(shot.index));};
+ const loadContext=async(eventId:string|null)=>{
+  if(!eventId){setContextError('Şut için kaynak Event ID bulunamadı');return;}
+  setContext(null);setContextError('');setContextLoading(true);
+  try{const response=await fetch('/api/v1/event-explorer/shot-context?'+new URLSearchParams({event_id:eventId,limit:'12'}));
+   if(!response.ok)throw new Error('Olay bağlamı API hatası ('+response.status+')');
+   const result:ContextResponse=await response.json();if(result.status!=='ready')throw new Error(result.reason||'Olay bağlamı bulunamadı');
+   setContext(result);
+  }catch(e){setContextError(e instanceof Error?e.message:String(e))}finally{setContextLoading(false)}
+ };
+ const selectShot=(shot:Shot)=>{setContext(null);setContextError('');setSelected(String(shot.index));};
  const renderPitch=(subset:Shot[],label:string)=>{const positioned=subset.filter(s=>s.location);const clusters=new Map<string,Shot[]>();positioned.forEach(s=>{const key=s.location!.map(n=>Math.round(n/2)).join(':');clusters.set(key,[...(clusters.get(key)||[]),s])});return <div className="tq-shot-field"><h4>{label} <small>· {subset.length} şut</small></h4><svg className="tq-shot-pitch" viewBox="0 0 640 430" role="group" aria-label={label+' şut konumları'}><rect width="640" height="430" rx="12" fill="#15473e"/>{Array.from({length:10},(_,i)=><rect key={i} x={20+i*60} y="20" width="60" height="390" fill={i%2?'#fff':'#000'} opacity=".035"/>)}<g fill="none" stroke="#d5f0e6" strokeWidth="1.6" opacity=".85" pointerEvents="none"><rect x="20" y="20" width="600" height="390"/><path d="M320 20V410"/><circle cx="320" cy="215" r="64"/><rect x="20" y="115" width="102" height="200"/><rect x="20" y="161" width="38" height="108"/><rect x="518" y="115" width="102" height="200"/><rect x="582" y="161" width="38" height="108"/></g>{Array.from(clusters.entries()).map(([key,group])=>{const x=20+group[0].location![0]/120*600,y=20+group[0].location![1]/80*390;const chosen=group.some(s=>String(s.index)===selected);const goal=group.some(s=>s.outcome==='Goal');const color=group.every(s=>s.team===group[0].team)?teamColor(group[0].team):'#e4e6ed';return <g key={key} role="button" tabIndex={0} aria-label={group.length+' şut, '+group.map(s=>(s.player||'Oyuncu bilinmiyor')+' '+(s.minute??'?')+' dakika').join('; ')} onClick={()=>{const current=group.findIndex(s=>String(s.index)===selected);selectShot(group[(current+1)%group.length])}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();const current=group.findIndex(s=>String(s.index)===selected);selectShot(group[(current+1)%group.length])}}} style={{cursor:'pointer'}}><circle cx={x} cy={y} r={chosen?13:group.length>1?11:goal?9:7} fill={color} stroke={chosen?'#fff':goal?'#fff':'#102e35'} strokeWidth={chosen?3:2}/>{goal&&<circle cx={x} cy={y} r="3" fill="#102e35"/>}{group.length>1&&<text x={x} y={y+3.5} fontSize="10" textAnchor="middle" fontWeight="bold" fill="#092b30">{group.length}</text>}<title>{group.length} şut · Tekrar tıklayarak aynı bölgedeki şutlar arasında geçiş yapın</title></g>})}</svg></div>};
  return <section className="tq-shotmap">
  <style>{`
@@ -106,6 +120,18 @@ export default function HistoricalShotMap(){
  <div className="tq-shot-controls"><label>Görünüm<select value={layout} onChange={e=>{setLayout(e.target.value as 'split'|'combined');setSelected(null)}}><option value="split">Yan yana takım haritaları</option><option value="combined">Birleşik harita</option></select></label></div>
  <p>Yakın konumdaki şutlar tek noktada sayı ile gruplanır. Tekrar tıklayarak gruptaki şutlar arasında geçiş yapabilirsiniz. Kaynak koordinatları değiştirilmez.</p>
  <div className={layout==='split'?'tq-shot-layout':'tq-shot-layout tq-shot-layout-one'} style={layout==='combined'?{gridTemplateColumns:'1fr'}:undefined}>{layout==='split'?teams.filter(t=>team==='all'||team===t).map(t=><div key={t}>{renderPitch(shots.filter(s=>s.team===t),t)}</div>):renderPitch(shots,'İki takım · birleşik')}</div> {active&&<div id="tq-selected-shot" className="tq-shot-detail" role="status"><strong>{active.player||'Oyuncu belirtilmemiş'}</strong> · {active.team||'Takım bilinmiyor'} · {active.minute??'?'}:{String(active.second??0).padStart(2,'0')} · {active.outcome||'Sonuç belirtilmemiş'}<small>Şut türü: {active.shot_type||'Bilinmiyor'} · Kaynak xG: {fmt(active.statsbomb_xg)} · Varsayımsal sağ kale uzaklığı: {geometry(active)?geometry(active)!.distance.toFixed(1)+' m':'—'} · Varsayımsal şut açısı: {geometry(active)?geometry(active)!.angle.toFixed(1)+'°':'—'} · Olay ID: {active.event_id||'—'} · Konum: {active.location?.join(', ')||'Yok'}</small></div>}
+ <section className="tq-opponent-iq" aria-label="Şut öncesi kaynak olaylar">
+ <h3>OpponentIQ V1.3 · Shot Build-up Evidence</h3>
+ <p>Önce haritadan veya şut listesinden bir şut seç. Ardından aynı possession içindeki önceki kaynak olayları incele.</p>
+ <button type="button" disabled={!active?.event_id||contextLoading} onClick={()=>loadContext(active?.event_id||null)}>{contextLoading?'Kaynak olaylar yükleniyor…':'Seçili şutun önceki olaylarını getir'}</button>
+ {contextError&&<p role="alert">{contextError}</p>}
+ {context?.status==='ready'&&<div>
+ <p>Possession: {context.possession??'Bilinmiyor'} · {context.items.length} kaynak olay {context.truncated?'· Önceki olaylar 12 ile sınırlandı':''}</p>
+ {!context.has_possession&&<p>Possession alanı eksik. Önceki olaylar güvenilir şekilde ilişkilendirilemedi.</p>}
+ <div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Dakika</th><th>Takım</th><th>Oyuncu</th><th>Olay</th><th>Konum</th><th>Kaynak ID</th></tr></thead><tbody>{context.items.map(e=><tr key={e.index}><td>{e.minute??'?'}:{String(e.second??0).padStart(2,'0')}</td><td>{e.team||'—'}</td><td>{e.player||'—'}</td><td>{e.type||'—'}</td><td>{e.location?.join(', ')||'—'}</td><td style={{overflowWrap:'anywhere'}}>{e.event_id||'—'}</td></tr>)}</tbody></table></div>
+ <p>{context.notes}</p>
+ </div>}
+ </section>
  <details><summary>Oyuncu bazında şut kalitesi ({playerStats.length})</summary><div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Oyuncu</th><th>Takım</th><th>Şut</th><th>Gol etiketi</th><th>Kaynak xG</th><th>xG / şut</th><th>xG kapsamı</th></tr></thead><tbody>{playerStats.map(p=><tr key={p.name+'-'+p.team}><td>{p.name}</td><td>{p.team}</td><td>{p.count}</td><td>{p.goals}</td><td>{p.covered===p.count?p.xg.toFixed(2):'Eksik'}</td><td>{p.covered===p.count?(p.xg/p.count).toFixed(3):'—'}</td><td>{p.covered}/{p.count}</td></tr>)}</tbody></table></div><p>Oyuncu tablosu seçili takım ve şut sonucu filtrelerini takip eder.</p></details>
  <details><summary>Şut olayları ({shots.length})</summary><div className="tq-shot-list">{shots.map(s=><button key={s.index} type="button" aria-pressed={String(s.index)===selected} onClick={()=>selectShot(s)}>{s.minute??'?'}' · {s.team||'—'} · {s.player||'—'} · {s.outcome||'—'}{!s.location?' · Konum eksik':''}</button>)}</div></details>
  <p>Mesafe ve açı, standart 105 × 68 m saha ve sağdaki kale merkezi varsayımıyla yaklaşık hesaplanır; doğrulanmış hücum yönü değildir. Kaynak xG değerleri yeniden hesaplanmaz.</p>

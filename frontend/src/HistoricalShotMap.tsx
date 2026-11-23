@@ -2,7 +2,9 @@ import {useEffect,useMemo,useState} from 'react';
 
 type Shot={event_id:string|null;index:number;minute:number|null;second:number|null;period:number|null;team:string|null;team_id:number|null;player:string|null;location:number[]|null;outcome:string|null;shot_type?:string|null;statsbomb_xg:number|null};
 type ContextEvent={event_id:string|null;index:number;minute:number|null;second:number|null;team:string|null;player:string|null;type:string|null;location:number[]|null};
-type ContextResponse={status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
+type SourceEvidence={event_id:string|null;type:string;minute:number|null;second:number|null;team:string|null;player:string|null;outcome:string|null;shot_xg:number|null};
+type SourceInterpretation={status:string;evidence:SourceEvidence[];has_error_label:boolean;has_pressure_label:boolean;has_dispossessed_label:boolean;note:string};
+type ContextResponse={interpretation?:SourceInterpretation;status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
 type ShotResponse={status:string;reason?:string;shot_count?:number;located_count?:number;items:Shot[];notes?:string};
 export default function HistoricalShotMap(){
  const [report,setReport]=useState<ShotResponse|null>(null);
@@ -128,6 +130,13 @@ export default function HistoricalShotMap(){
  {context?.status==='ready'&&<div>
  <p>Possession: {context.possession??'Bilinmiyor'} · {context.items.length} kaynak olay {context.truncated?'· Önceki olaylar 12 ile sınırlandı':''}</p>
  {!context.has_possession&&<p>Possession alanı eksik. Önceki olaylar güvenilir şekilde ilişkilendirilemedi.</p>}
+ {context.interpretation&&<div className="tq-opponent-card" style={{margin:'12px 0'}}>
+ <h4>OpponentIQ V1.4 · Kaynak destekli pozisyon özeti</h4>
+ <p>Seçilen şutun aynı possession içindeki kayıtları: {context.interpretation.has_pressure_label?'Baskı (Pressure)':'Baskı etiketi yok'} · {context.interpretation.has_dispossessed_label?'Top kaybı (Dispossessed)':'Top kaybı etiketi yok'} · {context.interpretation.has_error_label?'Hata (Error)':'Hata etiketi yok'}.</p>
+ <p>Bu etiketler olayların birlikte kaydedildiğini gösterir; aralarında kesin neden-sonuç ilişkisi kurmaz.</p>
+ <div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Zaman</th><th>Kanıt</th><th>Oyuncu</th><th>Sonuç / xG</th><th>Kaynak Event ID</th></tr></thead><tbody>{context.interpretation.evidence.map((e,i)=><tr key={(e.event_id||'unknown')+'-'+i}><td>{e.minute??'?'}:{String(e.second??0).padStart(2,'0')}</td><td>{e.type}</td><td>{e.player||'—'}</td><td>{e.outcome||'—'}{e.shot_xg!==null?' · xG '+e.shot_xg.toFixed(3):''}</td><td style={{overflowWrap:'anywhere'}}>{e.event_id||'—'}</td></tr>)}</tbody></table></div>
+ <p>Kanıt kapsamı: son {context.items.length} olay. {context.truncated?'Önceki olaylar kesildi; bu tam pozisyon geçmişi değildir.':'Gösterilen possession kesiti.'}</p>
+ </div>}
  <div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Dakika</th><th>Takım</th><th>Oyuncu</th><th>Olay</th><th>Konum</th><th>Kaynak ID</th></tr></thead><tbody>{context.items.map(e=><tr key={e.index}><td>{e.minute??'?'}:{String(e.second??0).padStart(2,'0')}</td><td>{e.team||'—'}</td><td>{e.player||'—'}</td><td>{e.type||'—'}</td><td>{e.location?.join(', ')||'—'}</td><td style={{overflowWrap:'anywhere'}}>{e.event_id||'—'}</td></tr>)}</tbody></table></div>
  <p>{context.notes}</p>
  </div>}

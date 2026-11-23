@@ -7,6 +7,8 @@ type SourceInterpretation={status:string;evidence:SourceEvidence[];has_error_lab
 type ClassificationFinding={code:string;label:string;status:string;evidence_event_ids:string[];explanation:string};
 type Classification={status:string;is_goal:boolean;findings:ClassificationFinding[];context_truncated:boolean;coverage_note:string;limitations:string};
 type ContextResponse={classification?:Classification;interpretation?:SourceInterpretation;status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
+type GoalOrigin={event_id:string;index:number;team:string|null;player:string|null;minute:number|null;second:number|null;statsbomb_xg:number|null;possession:number|null;classification?:Classification;evidence:SourceEvidence[];truncated:boolean};
+type GoalOriginsReport={status:string;reason?:string;goal_count:number;goals:GoalOrigin[];teams:{team:string;source_goal_count:number;xg_covered_goals:number;goal_shot_xg_sum:number;finding_counts:Record<string,number>}[];notes?:string};
 type ShotResponse={status:string;reason?:string;shot_count?:number;located_count?:number;items:Shot[];notes?:string};
 export default function HistoricalShotMap(){
  const [report,setReport]=useState<ShotResponse|null>(null);
@@ -17,6 +19,9 @@ export default function HistoricalShotMap(){
  const [context,setContext]=useState<ContextResponse|null>(null);
  const [contextLoading,setContextLoading]=useState(false);
  const [contextError,setContextError]=useState('');
+ const [goalReport,setGoalReport]=useState<GoalOriginsReport|null>(null);
+ const [goalError,setGoalError]=useState('');
+ const [goalLoading,setGoalLoading]=useState(false);
  const [layout,setLayout]=useState<'split'|'combined'>('split');
  
  useEffect(()=>{const c=new AbortController();fetch('/api/v1/event-explorer/shots',{signal:c.signal}).then(r=>{if(!r.ok)throw Error('Shot API unavailable ('+r.status+')');return r.json()}).then(setReport).catch(e=>{if(e.name!=='AbortError')setError(String(e))});return()=>c.abort()},[]);
@@ -50,6 +55,15 @@ export default function HistoricalShotMap(){
  const geometry=(s:Shot)=>{if(!s.location)return null;const [x,y]=s.location;const dx=(120-x)*105/120,dy=(y-40)*68/80;const post=7.32/2;
  const distance=Math.hypot(dx,dy);const angle=Math.abs(Math.atan2(post-dy,dx)-Math.atan2(-post-dy,dx))*180/Math.PI;
  return {distance,angle};};
+ const loadGoalReport=async()=>{
+  setGoalLoading(true);setGoalError('');
+  try{const response=await fetch('/api/v1/event-explorer/goal-origins?limit=30');
+   if(!response.ok)throw new Error('Goal Origins API hatası ('+response.status+')');
+   const data:GoalOriginsReport=await response.json();
+   if(data.status!=='ready')throw new Error(data.reason||'Gol verileri bulunamadı');
+   setGoalReport(data);
+  }catch(e){setGoalError(e instanceof Error?e.message:String(e))}finally{setGoalLoading(false)}
+ };
  const loadContext=async(eventId:string|null)=>{
   if(!eventId){setContextError('Şut için kaynak Event ID bulunamadı');return;}
   setContext(null);setContextError('');setContextLoading(true);
@@ -112,6 +126,23 @@ export default function HistoricalShotMap(){
  <div><button type="button" disabled={!shots.some(s=>s.index===f.largest.index)} onClick={()=>{setSelected(String(f.largest.index));document.getElementById('tq-selected-shot')?.scrollIntoView({behavior:'smooth',block:'center'});}}>Şut detayını göster</button></div>
  </article>)}</div>}
  <p className="tq-opponent-caution">Kaynak xG yeniden hesaplanmaz. Tek maç ve küçük şut örneklemi nedeniyle bu bulgu gelecekteki rakip davranışını kanıtlamaz.</p>
+ </section>
+ <section className="tq-opponent-iq" aria-label="Maç geneli otomatik gol kaynakları">
+ <h3>OpponentIQ V1.6 · Automatic Goal Origins Report</h3>
+ <p>Maçın tüm kaynak Goal etiketli şutları için possession kanıtlarını otomatik sınıflandırır. Kaynak xG değiştirilmez.</p>
+ <button type="button" disabled={goalLoading} onClick={loadGoalReport}>{goalLoading?'Gol raporu hazırlanıyor…':'Maçın bütün gollerini analiz et'}</button>
+ {goalError&&<p role="alert">{goalError}</p>}
+ {goalReport&&<div>
+ <p>Kaynak gol etiketi: <strong>{goalReport.goal_count}</strong></p>
+ <div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Takım</th><th>Gol etiketi</th><th>Gol şutları xG toplamı</th><th>Hata</th><th>Top kaybı</th><th>Kazanılan mücadele</th><th>Yüksek xG</th></tr></thead><tbody>{goalReport.teams.map(t=><tr key={t.team}><td>{t.team}</td><td>{t.source_goal_count}</td><td>{t.xg_covered_goals===t.source_goal_count?t.goal_shot_xg_sum.toFixed(3):'Eksik veri'}</td><td>{t.finding_counts.goal_with_prior_error??0}</td><td>{t.finding_counts.goal_with_prior_dispossessed??0}</td><td>{t.finding_counts.goal_with_prior_won_duel??0}</td><td>{t.finding_counts.high_xg_shot??0}</td></tr>)}</tbody></table></div>
+ {goalReport.goals.map(g=><div key={g.event_id} className="tq-opponent-card" style={{margin:'12px 0'}}>
+ <h4>{g.team||'Takım bilinmiyor'} · {g.player||'Oyuncu bilinmiyor'} · {g.minute??'?'}:{String(g.second??0).padStart(2,'0')}</h4>
+ <p>Gol şutu kaynak xG: <strong>{g.statsbomb_xg===null?'Eksik':g.statsbomb_xg.toFixed(3)}</strong> · Possession: {g.possession??'Eksik'} · {g.truncated?'Olay geçmişi sınırlandı':'Olay geçmişi sınır aşmadı'}</p>
+ {g.classification?.findings.length?<div>{g.classification.findings.map(f=><p key={f.code}><strong>{f.label}</strong> · {f.explanation} <small>Kanıt: {f.evidence_event_ids.join(' · ')}</small></p>)}</div>:<p>Bu kapsamda sınıflandırılmış bulgu yok.</p>}
+ <small>Gol Event ID: {g.event_id}</small>
+ </div>)}
+ <p>{goalReport.notes}</p>
+ </div>}
  </section>
  <h4>Maç geneli · takım şut kalitesi</h4>
  <p>Bu tablo filtrelerden bağımsızdır. Gol sayısı yalnızca kaynak şut sonucu etiketlerinden sayılır; resmî skor doğrulaması değildir.</p>

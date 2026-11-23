@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 
-type Shot={event_id:string|null;index:number;minute:number|null;second:number|null;period:number|null;team:string|null;team_id:number|null;player:string|null;location:number[]|null;outcome:string|null;statsbomb_xg:number|null};
+type Shot={event_id:string|null;index:number;minute:number|null;second:number|null;period:number|null;team:string|null;team_id:number|null;player:string|null;location:number[]|null;outcome:string|null;shot_type?:string|null;statsbomb_xg:number|null};
 type ShotResponse={status:string;reason?:string;shot_count?:number;located_count?:number;items:Shot[];notes?:string};
 export default function HistoricalShotMap(){
  const [report,setReport]=useState<ShotResponse|null>(null);
@@ -23,7 +23,9 @@ export default function HistoricalShotMap(){
  // Coordinates are shot-oriented in this pilot; do not extrapolate to all event types.
  const zone=(shot:Shot):'inside'|'outside'|'unknown'=>{const p=shot.location;if(!p||!Number.isFinite(p[0])||!Number.isFinite(p[1]))return 'unknown';return p[0]>=102&&p[1]>=18&&p[1]<=62?'inside':'outside';};
  const zoneStats=teams.filter(name=>team==='all'||team===name).map(name=>{const items=shots.filter(s=>s.team===name);return {name,inside:items.filter(s=>zone(s)==='inside').length,outside:items.filter(s=>zone(s)==='outside').length,unknown:items.filter(s=>zone(s)==='unknown').length};});
- const opponentInsights=teamStats.map(t=>{const inside=t.items.filter(s=>zone(s)==='inside').length;const outside=t.items.filter(s=>zone(s)==='outside').length;const unknown=t.items.length-inside-outside;return {name:t.name,shots:t.items.length,inside,outside,unknown,goals:t.goals,complete:t.complete,total:t.total,coverage:t.covered};});
+ const shotIsPenalty=(s:Shot)=>s.shot_type==='Penalty';
+ const shotTypeKnown=(s:Shot)=>typeof s.shot_type==='string'&&s.shot_type.length>0;
+ const opponentInsights=teamStats.map(t=>{const inside=t.items.filter(s=>zone(s)==='inside').length;const outside=t.items.filter(s=>zone(s)==='outside').length;const unknown=t.items.length-inside-outside;return {name:t.name,shots:t.items.length,inside,outside,unknown,goals:t.goals,complete:t.complete,total:t.total,coverage:t.covered,penalties:t.items.filter(shotIsPenalty).length,unknownTypes:t.items.filter(s=>!shotTypeKnown(s)).length,nonPenalty:t.items.filter(s=>shotTypeKnown(s)&&!shotIsPenalty(s)),penaltyItems:t.items.filter(shotIsPenalty)};});
  const active=shots.find(s=>String(s.index)===selected);
  const teamColor=(name:string|null)=>name===teams[0]?'#F7A65C':'#58D7CE';
  const fmt=(v:number|null)=>typeof v==='number'?v.toFixed(3):'—';
@@ -60,12 +62,15 @@ export default function HistoricalShotMap(){
  <div className="tq-shot-xg" aria-label="Kaynak xG özeti">{teams.filter(t=>team==='all'||team===t).map(t=>{const subset=shots.filter(s=>s.team===t);const covered=xgCoverage(subset);return <div key={t}><small>{t} · Kaynak xG toplamı</small><strong>{covered===subset.length?xgTotal(subset).toFixed(2):'Eksik'}</strong><small>{covered}/{subset.length} şut için xG · Seçili filtre</small></div>})}</div>
  <section className="tq-opponent-iq" aria-label="OpponentIQ V1 şut kalitesi analizi">
  <h3>OpponentIQ V1 · Shot Quality Intelligence</h3>
- <p>Tek maçlık, kaynak olaylarına bağlı karşılaştırma. Bu bölüm rakibin gelecekteki davranışını tahmin etmez.</p>
+ <p>Tek maçlık, kaynak olaylarına bağlı karşılaştırma. Penaltı ayrımı StatsBomb shot.type alanına dayanır; tür eksikse penaltı hariç xG gösterilmez. Bu bölüm rakibin gelecekteki davranışını tahmin etmez.</p>
  <div className="tq-opponent-grid">{opponentInsights.map(t=><article key={t.name} className="tq-opponent-card"><h4>{t.name}</h4>
  <p><strong>{t.shots}</strong> kaynak şut · <strong>{t.goals}</strong> kaynak gol etiketi</p>
  <p>Ceza sahası içi: <strong>{t.inside}</strong> · Dışı: <strong>{t.outside}</strong>{t.unknown>0?' · Konumsuz: '+t.unknown:''}</p>
  <p>Kaynak xG: <strong>{t.complete?t.total.toFixed(2):'Eksik veri'}</strong> · Kapsam: {t.coverage}/{t.shots}</p>
  <p>Şut başına xG: <strong>{t.complete?(t.total/t.shots).toFixed(3):'—'}</strong></p>
+ <p>Kaynak penaltı şutu: <strong>{t.penalties}</strong> · Türü bilinmeyen: <strong>{t.unknownTypes}</strong></p>
+ <p>Penaltı hariç xG: <strong>{t.unknownTypes===0&&t.nonPenalty.length>0&&xgCoverage(t.nonPenalty)===t.nonPenalty.length?xgTotal(t.nonPenalty).toFixed(2):'Doğrulanamadı'}</strong> · {t.nonPenalty.length} penaltı dışı şut</p>
+ <p>Penaltı xG: <strong>{t.penaltyItems.length>0&&xgCoverage(t.penaltyItems)===t.penaltyItems.length?xgTotal(t.penaltyItems).toFixed(2):t.penaltyItems.length===0&&t.unknownTypes===0?'0.00':'Doğrulanamadı'}</strong></p>
  <small>Kanıt: {t.shots} Shot olayı, {t.coverage} kaynak xG alanı. Şutlar ve gol etiketleri resmî skorla bağımsız doğrulanmadı.</small>
  </article>)}</div>
  <p className="tq-opponent-caution">Yorum sınırı: Şut sayısı ve xG yalnızca bu maçın gözlemidir. Hücum yönü tüm olay türleri için doğrulanmadı. Çok maçlı rakip eğilimi ve otomatik taktik önerisi henüz etkin değildir.</p>
@@ -80,7 +85,7 @@ export default function HistoricalShotMap(){
  <div className="tq-shot-legend">{teams.map(t=><span key={t}><i style={{background:teamColor(t)}}/>{t}</span>)}<span>◎ Gol sonucu (kaynak etiketi)</span></div>
  <div className="tq-shot-controls"><label>Görünüm<select value={layout} onChange={e=>{setLayout(e.target.value as 'split'|'combined');setSelected(null)}}><option value="split">Yan yana takım haritaları</option><option value="combined">Birleşik harita</option></select></label></div>
  <p>Yakın konumdaki şutlar tek noktada sayı ile gruplanır. Tekrar tıklayarak gruptaki şutlar arasında geçiş yapabilirsiniz. Kaynak koordinatları değiştirilmez.</p>
- <div className={layout==='split'?'tq-shot-layout':'tq-shot-layout tq-shot-layout-one'} style={layout==='combined'?{gridTemplateColumns:'1fr'}:undefined}>{layout==='split'?teams.filter(t=>team==='all'||team===t).map(t=><div key={t}>{renderPitch(shots.filter(s=>s.team===t),t)}</div>):renderPitch(shots,'İki takım · birleşik')}</div> {active&&<div className="tq-shot-detail" role="status"><strong>{active.player||'Oyuncu belirtilmemiş'}</strong> · {active.team||'Takım bilinmiyor'} · {active.minute??'?'}:{String(active.second??0).padStart(2,'0')} · {active.outcome||'Sonuç belirtilmemiş'}<small>Kaynak xG: {fmt(active.statsbomb_xg)} · Varsayımsal sağ kale uzaklığı: {geometry(active)?geometry(active)!.distance.toFixed(1)+' m':'—'} · Varsayımsal şut açısı: {geometry(active)?geometry(active)!.angle.toFixed(1)+'°':'—'} · Olay ID: {active.event_id||'—'} · Konum: {active.location?.join(', ')||'Yok'}</small></div>}
+ <div className={layout==='split'?'tq-shot-layout':'tq-shot-layout tq-shot-layout-one'} style={layout==='combined'?{gridTemplateColumns:'1fr'}:undefined}>{layout==='split'?teams.filter(t=>team==='all'||team===t).map(t=><div key={t}>{renderPitch(shots.filter(s=>s.team===t),t)}</div>):renderPitch(shots,'İki takım · birleşik')}</div> {active&&<div className="tq-shot-detail" role="status"><strong>{active.player||'Oyuncu belirtilmemiş'}</strong> · {active.team||'Takım bilinmiyor'} · {active.minute??'?'}:{String(active.second??0).padStart(2,'0')} · {active.outcome||'Sonuç belirtilmemiş'}<small>Şut türü: {active.shot_type||'Bilinmiyor'} · Kaynak xG: {fmt(active.statsbomb_xg)} · Varsayımsal sağ kale uzaklığı: {geometry(active)?geometry(active)!.distance.toFixed(1)+' m':'—'} · Varsayımsal şut açısı: {geometry(active)?geometry(active)!.angle.toFixed(1)+'°':'—'} · Olay ID: {active.event_id||'—'} · Konum: {active.location?.join(', ')||'Yok'}</small></div>}
  <details><summary>Oyuncu bazında şut kalitesi ({playerStats.length})</summary><div className="tq-shot-table-wrap"><table className="tq-shot-table"><thead><tr><th>Oyuncu</th><th>Takım</th><th>Şut</th><th>Gol etiketi</th><th>Kaynak xG</th><th>xG / şut</th><th>xG kapsamı</th></tr></thead><tbody>{playerStats.map(p=><tr key={p.name+'-'+p.team}><td>{p.name}</td><td>{p.team}</td><td>{p.count}</td><td>{p.goals}</td><td>{p.covered===p.count?p.xg.toFixed(2):'Eksik'}</td><td>{p.covered===p.count?(p.xg/p.count).toFixed(3):'—'}</td><td>{p.covered}/{p.count}</td></tr>)}</tbody></table></div><p>Oyuncu tablosu seçili takım ve şut sonucu filtrelerini takip eder.</p></details>
  <details><summary>Şut olayları ({shots.length})</summary><div className="tq-shot-list">{shots.map(s=><button key={s.index} type="button" aria-pressed={String(s.index)===selected} onClick={()=>selectShot(s)}>{s.minute??'?'}' · {s.team||'—'} · {s.player||'—'} · {s.outcome||'—'}{!s.location?' · Konum eksik':''}</button>)}</div></details>
  <p>Mesafe ve açı, standart 105 × 68 m saha ve sağdaki kale merkezi varsayımıyla yaklaşık hesaplanır; doğrulanmış hücum yönü değildir. Kaynak xG değerleri yeniden hesaplanmaz.</p>

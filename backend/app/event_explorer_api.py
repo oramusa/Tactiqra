@@ -181,3 +181,72 @@ def shot_context(event_id: str = Query(..., min_length=8, max_length=80),
             'truncated': len(candidates) > limit,
             'notes': 'Same-possession events preceding the shot in file order. '
                      'Not a validated causal chain, tracking reconstruction, or tactical attribution.'}
+
+
+@router.get('/goal-origins')
+def goal_origins(limit: int = Query(30, ge=1, le=30)):
+    """Match-wide source-labeled goals with bounded possession evidence.
+
+    Goal labels are source Shot outcomes, not independently validated score.
+    """
+    raw = load_events()
+    if raw is None:
+        return {'status': 'insufficient_data', 'reason': 'Historical event JSON not configured',
+                'goals': [], 'teams': [], 'goal_count': 0}
+    goal_events = []
+    for idx, event in enumerate(raw):
+        if not isinstance(event, dict):
+            continue
+        kind = event.get('type')
+        shot = event.get('shot')
+        if not (isinstance(kind, dict) and kind.get('name') == 'Shot'
+                and isinstance(shot, dict)):
+            continue
+        outcome = shot.get('outcome')
+        if isinstance(outcome, dict) and outcome.get('name') == 'Goal':
+            goal_events.append((idx, event))
+    goals = []
+    for idx, event in goal_events:
+        event_id = event.get('id')
+        if not isinstance(event_id, str) or not event_id:
+            continue
+        context = shot_context(event_id=event_id, limit=limit)
+        team = event.get('team')
+        player = event.get('player')
+        shot = event['shot']
+        xg = shot.get('statsbomb_xg')
+        valid_xg = type(xg) in (int, float) and 0 <= xg <= 1
+        goals.append({
+            'event_id': event_id, 'index': idx,
+            'team': team.get('name') if isinstance(team, dict) else None,
+            'player': player.get('name') if isinstance(player, dict) else None,
+            'minute': event.get('minute'), 'second': event.get('second'),
+            'period': event.get('period'),
+            'statsbomb_xg': xg if valid_xg else None,
+            'possession': context.get('possession'),
+            'classification': context.get('classification'),
+            'evidence': context.get('interpretation', {}).get('evidence', []),
+            'truncated': context.get('truncated', False),
+        })
+    names = sorted({g['team'] for g in goals if g['team']})
+    teams = []
+    for name in names:
+        subset = [g for g in goals if g['team'] == name]
+        teams.append({
+            'team': name, 'source_goal_count': len(subset),
+            'xg_covered_goals': sum(g['statsbomb_xg'] is not None for g in subset),
+            'goal_shot_xg_sum': sum(g['statsbomb_xg'] for g in subset if g['statsbomb_xg'] is not None),
+            'finding_counts': {
+                code: sum(any(f['code'] == code for f in
+                         (g.get('classification') or {}).get('findings', [])) for g in subset)
+                for code in ('goal_with_prior_error', 'goal_with_prior_dispossessed',
+                             'goal_with_prior_won_duel', 'high_xg_shot')
+            },
+        })
+    return {
+        'status': 'ready', 'source': 'local_historical_statsbomb_events',
+        'provisional': True, 'goal_count': len(goals), 'goals': goals, 'teams': teams,
+        'notes': 'Source Shot/Goal labels only; not official-score reconciliation. '
+                 'Findings are descriptive and may miss events outside the bounded context. '
+                 'Goal-shot xG sum is not match total xG. No causal attribution.',
+    }

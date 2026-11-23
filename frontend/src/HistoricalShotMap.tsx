@@ -4,7 +4,9 @@ type Shot={event_id:string|null;index:number;minute:number|null;second:number|nu
 type ContextEvent={event_id:string|null;index:number;minute:number|null;second:number|null;team:string|null;player:string|null;type:string|null;location:number[]|null};
 type SourceEvidence={event_id:string|null;type:string;minute:number|null;second:number|null;team:string|null;player:string|null;outcome:string|null;shot_xg:number|null};
 type SourceInterpretation={status:string;evidence:SourceEvidence[];has_error_label:boolean;has_pressure_label:boolean;has_dispossessed_label:boolean;note:string};
-type ContextResponse={interpretation?:SourceInterpretation;status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
+type ClassificationFinding={code:string;label:string;status:string;evidence_event_ids:string[];explanation:string};
+type Classification={status:string;is_goal:boolean;findings:ClassificationFinding[];context_truncated:boolean;coverage_note:string;limitations:string};
+type ContextResponse={classification?:Classification;interpretation?:SourceInterpretation;status:string;reason?:string;shot_event_id?:string;possession?:number|null;has_possession?:boolean;items:ContextEvent[];truncated?:boolean;notes?:string};
 type ShotResponse={status:string;reason?:string;shot_count?:number;located_count?:number;items:Shot[];notes?:string};
 export default function HistoricalShotMap(){
  const [report,setReport]=useState<ShotResponse|null>(null);
@@ -130,6 +132,15 @@ export default function HistoricalShotMap(){
  {context?.status==='ready'&&<div>
  <p>Possession: {context.possession??'Bilinmiyor'} · {context.items.length} kaynak olay {context.truncated?'· Önceki olaylar 12 ile sınırlandı':''}</p>
  {!context.has_possession&&<p>Possession alanı eksik. Önceki olaylar güvenilir şekilde ilişkilendirilemedi.</p>}
+ {context.classification&&<div className="tq-opponent-card" style={{margin:'12px 0'}}>
+ <h4>OpponentIQ V1.5 · Goal Classification</h4>
+ <p>{context.classification.is_goal?'Kaynak şut sonucu: Goal':'Kaynak şut sonucu: Gol değil'} · {context.classification.status==='source_classification'?'Kaynak etiketleriyle sınıflandırıldı':'Yetersiz possession verisi'}</p>
+ {context.classification.findings.length===0?<p>Bu kapsamda doğrulanmış sınıflandırma bulunamadı. Bu, olayın gerçekleşmediğini kanıtlamaz.</p>:<div>{context.classification.findings.map(f=><div key={f.code} style={{padding:'10px 0',borderBottom:'1px solid #355066'}}>
+ <strong>{f.label}</strong><p>{f.explanation}</p><small>Kaynak Event ID: {f.evidence_event_ids.join(' · ')}</small>
+ </div>)}</div>}
+ <p>{context.classification.coverage_note}</p>
+ <p>{context.classification.limitations}</p>
+ </div>}
  {context.interpretation&&<div className="tq-opponent-card" style={{margin:'12px 0'}}>
  <h4>OpponentIQ V1.4 · Kaynak destekli pozisyon özeti</h4>
  <p>Seçilen şutun aynı possession içindeki kayıtları: {context.interpretation.has_pressure_label?'Baskı (Pressure)':'Baskı etiketi yok'} · {context.interpretation.has_dispossessed_label?'Top kaybı (Dispossessed)':'Top kaybı etiketi yok'} · {context.interpretation.has_error_label?'Hata (Error)':'Hata etiketi yok'}.</p>

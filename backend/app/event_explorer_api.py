@@ -61,6 +61,7 @@ def historical_shots():
             'player': player.get('name') if isinstance(player, dict) else None,
             'location': loc[:2] if valid else None,
             'outcome': outcome.get('name') if isinstance(outcome, dict) else None,
+            'shot_type': (shot.get('type') or {}).get('name') if isinstance(shot.get('type'), dict) else None,
             'statsbomb_xg': shot.get('statsbomb_xg') if isinstance(shot.get('statsbomb_xg'), (float, int)) else None,
         })
     return {

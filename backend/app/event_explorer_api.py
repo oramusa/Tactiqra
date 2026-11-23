@@ -108,9 +108,37 @@ def shot_context(event_id: str = Query(..., min_length=8, max_length=80),
             'location': location[:2] if isinstance(location, list) and len(location) >= 2
                         and all(type(v) in (int, float) for v in location[:2]) else None,
         })
+    # Explicit source labels only. Do not infer a causal chain from adjacency.
+    evidence = []
+    for item in items:
+        if item['type'] in ('Error', 'Dispossessed', 'Pressure', 'Duel', 'Ball Receipt*', 'Shot'):
+            original = raw[item['index']]
+            detail = original.get('shot') if item['type'] == 'Shot' else original.get(item['type'].lower().replace(' ', '_').replace('*', ''))
+            if not isinstance(detail, dict):
+                detail = {}
+            outcome = detail.get('outcome')
+            if not isinstance(outcome, dict):
+                outcome = {}
+            evidence.append({
+                'event_id': item['event_id'], 'type': item['type'],
+                'minute': item['minute'], 'second': item['second'],
+                'team': item['team'], 'player': item['player'],
+                'outcome': outcome.get('name'),
+                'shot_xg': detail.get('statsbomb_xg') if item['type'] == 'Shot'
+                           and type(detail.get('statsbomb_xg')) in (int, float) else None,
+            })
+    interpretation = {
+        'status': 'source_observations',
+        'evidence': evidence,
+        'has_error_label': any(e['type'] == 'Error' for e in evidence),
+        'has_pressure_label': any(e['type'] == 'Pressure' for e in evidence),
+        'has_dispossessed_label': any(e['type'] == 'Dispossessed' for e in evidence),
+        'note': 'Source event labels within the selected possession; not proof that pressure or error caused the goal.'
+    }
     return {'status': 'ready', 'source': 'local_historical_statsbomb_events',
             'shot_event_id': event_id, 'possession': possession, 'period': period,
             'has_possession': possession is not None, 'items': items,
+            'interpretation': interpretation,
             'truncated': len(candidates) > limit,
             'notes': 'Same-possession events preceding the shot in file order. '
                      'Not a validated causal chain, tracking reconstruction, or tactical attribution.'}

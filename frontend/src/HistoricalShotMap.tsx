@@ -15,6 +15,8 @@ export default function HistoricalShotMap(){
  const outcomes=useMemo(()=>Array.from(new Set((report?.items||[]).map(s=>s.outcome).filter((x):x is string=>!!x))),[report]);
  const shots=(report?.items||[]).filter(s=>(team==='all'||s.team===team)&&(outcome==='all'||s.outcome===outcome));
  const allShots=report?.items||[];
+ const xgTotal=(items:Shot[])=>items.reduce((sum,s)=>sum+(typeof s.statsbomb_xg==='number'&&Number.isFinite(s.statsbomb_xg)?s.statsbomb_xg:0),0);
+ const xgCoverage=(items:Shot[])=>items.filter(s=>typeof s.statsbomb_xg==='number'&&Number.isFinite(s.statsbomb_xg)).length;
  const teamStats=teams.map(name=>{const items=allShots.filter(s=>s.team===name);const covered=xgCoverage(items);return {name,items,covered,goals:items.filter(s=>s.outcome==='Goal').length,total:xgTotal(items),complete:covered===items.length&&items.length>0};});
  const playerStats=Array.from(new Set(shots.map(s=>s.player).filter((p):p is string=>!!p))).map(name=>{const items=shots.filter(s=>s.player===name);const covered=xgCoverage(items);return {name,team:items[0]?.team||'—',count:items.length,goals:items.filter(s=>s.outcome==='Goal').length,covered,xg:xgTotal(items)};}).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
  // StatsBomb 120x80 pitch; attacking penalty area is x>=102 and 18<=y<=62.
@@ -24,8 +26,6 @@ export default function HistoricalShotMap(){
  const active=shots.find(s=>String(s.index)===selected);
  const teamColor=(name:string|null)=>name===teams[0]?'#F7A65C':'#58D7CE';
  const fmt=(v:number|null)=>typeof v==='number'?v.toFixed(3):'—';
- const xgTotal=(items:Shot[])=>items.reduce((sum,s)=>sum+(typeof s.statsbomb_xg==='number'&&Number.isFinite(s.statsbomb_xg)?s.statsbomb_xg:0),0);
- const xgCoverage=(items:Shot[])=>items.filter(s=>typeof s.statsbomb_xg==='number'&&Number.isFinite(s.statsbomb_xg)).length;
  // StatsBomb standard pitch is 120 x 80 coordinate units. Metric conversion is approximate.
  // Do not infer attack direction from this assumption.
  const geometry=(s:Shot)=>{if(!s.location)return null;const [x,y]=s.location;const dx=(120-x)*105/120,dy=(y-40)*68/80;const post=7.32/2;

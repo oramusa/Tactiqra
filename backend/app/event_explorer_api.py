@@ -71,3 +71,46 @@ def historical_shots():
         'items': items,
         'notes': 'Raw source shot outcomes; not independently reconciled with official score. Shot direction not verified.',
     }
+
+
+@router.get('/shot-context')
+def shot_context(event_id: str = Query(..., min_length=8, max_length=80),
+                 limit: int = Query(12, ge=1, le=30)):
+    """Bounded source event window; adjacency is not proof of a causal sequence."""
+    raw = load_events()
+    if raw is None:
+        return {'status': 'insufficient_data', 'reason': 'Historical event JSON not configured', 'items': []}
+    match = next((i for i, e in enumerate(raw) if isinstance(e, dict) and
+                  e.get('id') == event_id and (e.get('type') or {}).get('name') == 'Shot'), None)
+    if match is None:
+        return {'status': 'not_found', 'reason': 'Shot event not found', 'items': []}
+    target = raw[match]
+    period = target.get('period')
+    possession = target.get('possession')
+    candidates = [(i, e) for i, e in enumerate(raw[:match]) if isinstance(e, dict) and
+                  e.get('period') == period and possession is not None and
+                  e.get('possession') == possession]
+    chosen = candidates[-limit:] if possession is not None else []
+    chosen.append((match, target))
+    items = []
+    for idx, event in chosen:
+        team = event.get('team')
+        player = event.get('player')
+        kind = event.get('type')
+        location = event.get('location')
+        items.append({
+            'event_id': event.get('id'), 'index': idx, 'minute': event.get('minute'),
+            'second': event.get('second'), 'period': event.get('period'),
+            'possession': event.get('possession'),
+            'team': team.get('name') if isinstance(team, dict) else None,
+            'player': player.get('name') if isinstance(player, dict) else None,
+            'type': kind.get('name') if isinstance(kind, dict) else None,
+            'location': location[:2] if isinstance(location, list) and len(location) >= 2
+                        and all(type(v) in (int, float) for v in location[:2]) else None,
+        })
+    return {'status': 'ready', 'source': 'local_historical_statsbomb_events',
+            'shot_event_id': event_id, 'possession': possession, 'period': period,
+            'has_possession': possession is not None, 'items': items,
+            'truncated': len(candidates) > limit,
+            'notes': 'Same-possession events preceding the shot in file order. '
+                     'Not a validated causal chain, tracking reconstruction, or tactical attribution.'}

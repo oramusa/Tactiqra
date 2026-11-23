@@ -135,10 +135,49 @@ def shot_context(event_id: str = Query(..., min_length=8, max_length=80),
         'has_dispossessed_label': any(e['type'] == 'Dispossessed' for e in evidence),
         'note': 'Source event labels within the selected possession; not proof that pressure or error caused the goal.'
     }
+    # V1.5: descriptive labels, never inferred causality or invented xG.
+    shot_detail = target.get('shot') if isinstance(target.get('shot'), dict) else {}
+    shot_outcome = shot_detail.get('outcome')
+    is_goal = isinstance(shot_outcome, dict) and shot_outcome.get('name') == 'Goal'
+    shot_team = target.get('team')
+    shot_team_name = shot_team.get('name') if isinstance(shot_team, dict) else None
+    before = evidence[:-1]
+    def matching(kind, predicate=lambda e: True):
+        return [e for e in before if e['type'] == kind and predicate(e) and e['event_id']]
+    findings = []
+    def add(code, label, matches, explanation):
+        if matches:
+            findings.append({'code': code, 'label': label, 'status': 'observed',
+                             'evidence_event_ids': [e['event_id'] for e in matches],
+                             'explanation': explanation})
+    if is_goal:
+        add('goal_with_prior_error', 'Gol öncesi hata kaydı',
+            matching('Error'),
+            'Aynı possession içinde golden önce Error etiketi var; nedensellik doğrulanmadı.')
+        add('goal_with_prior_dispossessed', 'Gol öncesi top kaybı kaydı',
+            matching('Dispossessed'),
+            'Aynı possession içinde golden önce Dispossessed etiketi var; top kazanımıyla eşdeğer değildir.')
+        add('goal_with_prior_won_duel', 'Gol öncesi kazanılmış mücadele',
+            matching('Duel', lambda e: e['outcome'] == 'Won' and e['team'] == shot_team_name),
+            'Golü atan takım için Won sonucuna sahip Duel kaydı var; top kazanma zinciri doğrulanmadı.')
+    xg = shot_detail.get('statsbomb_xg')
+    if type(xg) in (int, float) and 0 <= xg <= 1 and xg >= 0.5:
+        add('high_xg_shot', 'Yüksek kaynak xG şutu',
+            [e for e in evidence if e['event_id'] == event_id],
+            'Kaynak xG >= 0.50; bu eşik analitik gösterim içindir, yeniden hesaplanan xG değildir.')
+    classification = {
+        'status': 'source_classification' if possession is not None else 'insufficient_data',
+        'is_goal': is_goal,
+        'findings': findings if possession is not None else [],
+        'context_truncated': len(candidates) > limit,
+        'coverage_note': ('Son %d önceki olay gösteriliyor; daha eski kanıtlar dışarıda kalmış olabilir.' % limit)
+                         if len(candidates) > limit else 'Seçili possession içindeki önceki olaylar listelendi.',
+        'limitations': 'Etiketler betimleyicidir; kesin neden-sonuç, otomatik top kazanımı veya taktik niyet kanıtı değildir.'
+    }
     return {'status': 'ready', 'source': 'local_historical_statsbomb_events',
             'shot_event_id': event_id, 'possession': possession, 'period': period,
             'has_possession': possession is not None, 'items': items,
-            'interpretation': interpretation,
+            'interpretation': interpretation, 'classification': classification,
             'truncated': len(candidates) > limit,
             'notes': 'Same-possession events preceding the shot in file order. '
                      'Not a validated causal chain, tracking reconstruction, or tactical attribution.'}

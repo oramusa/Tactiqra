@@ -1,6 +1,8 @@
 """Read-only local pilot heatmap API; not associated with selected live team."""
 import json
 import os
+from functools import lru_cache
+from urllib.request import urlopen
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from heatmap_engine import heatmap
@@ -9,9 +11,29 @@ from direction_metadata import load_verified_directions, DirectionMetadataError
 
 router = APIRouter(prefix='/api/v1/heatmap', tags=['historical-heatmap'])
 
+# Explicit opt-in, fixed upstream; never accept a request-supplied URL.
+PILOT_URL = 'https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/3773386.json'
+MAX_EVENT_BYTES = 30_000_000
+
+@lru_cache(maxsize=1)
+def load_remote_pilot():
+    try:
+        with urlopen(PILOT_URL, timeout=10) as response:
+            payload = response.read(MAX_EVENT_BYTES + 1)
+        if len(payload) > MAX_EVENT_BYTES:
+            raise ValueError('Source too large')
+        raw = json.loads(payload)
+        if not isinstance(raw, list) or not raw or len(raw) > 200_000:
+            raise ValueError('Invalid event structure')
+        return raw
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, 'StatsBomb pilot source unavailable or invalid') from exc
+
 def load_events():
     configured = os.getenv('FOOTBALLIQ_HISTORICAL_EVENTS')
     if not configured:
+        if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') == '3773386':
+            return load_remote_pilot()
         return None
     path = Path(configured)
     if not path.is_file() or path.stat().st_size > 30_000_000:

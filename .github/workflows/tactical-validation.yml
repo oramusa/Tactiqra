@@ -53,8 +53,8 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npm run build
-      - name: Evidence regression tests
-        run: node --experimental-strip-types --test tests/evidence.test.mjs
+      - name: Frontend regression tests
+        run: node --experimental-strip-types --test tests/*.test.mjs
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Audit all dependencies

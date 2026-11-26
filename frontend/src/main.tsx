@@ -47,7 +47,12 @@ function TacticalPlayback({players,movements}:{players:BoardPlayer[];movements:M
 const scenarioNames=['Hücum','Savunma','Geçiş','Korner','Serbest vuruş'] as const;
 function CoachWorkspace({evidence}:{evidence:string[]}){
  const [scenario,setScenario]=useState<typeof scenarioNames[number]>('Hücum');
- return <section><nav className="tabs" aria-label="Taktik senaryoları" style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>{scenarioNames.map(n=><button type="button" key={n} className={scenario===n?'active':''} aria-pressed={scenario===n} onClick={()=>setScenario(n)}>{n}</button>)}</nav>{scenarioNames.map(n=><div key={n} hidden={scenario!==n}><CoachPlan evidence={evidence} scenario={n}/></div>)}</section>
+ const [plans,setPlans]=useState<Record<string,CoachSnapshot>>({});
+ const receive=React.useCallback((p:CoachSnapshot)=>setPlans(old=>({...old,[p.scenario]:p})),[]);
+ const ordered=scenarioNames.flatMap(n=>plans[n]?[plans[n]]:[]);
+ const [exportError,setExportError]=useState('');
+ const download=()=>{try{for(const p of ordered)validateCoachPlan(p,p.scenario);const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,kind:'complete-match-plan',scenarios:ordered,evidence},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='tactiqra-complete-match-plan.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setExportError('')}catch{setExportError('Plan doğrulanamadı; görevleri ve koordinatları kontrol edin.')}};
+ return <section><section className="panel"><h3>Complete Match Plan</h3><p>Canlı taslak özeti · {ordered.length}/5 senaryo · Antrenör onayı bekliyor.</p>{ordered.map(p=><details key={p.scenario}><summary>{p.scenario} · {p.opponent||'Rakip belirtilmedi'}</summary><p>Hedef: {p.objective||'Belirtilmedi'}</p>{phaseNames.map(n=><p key={n}>{n} · {p.phases[n].formation} · {p.phases[n].board.filter(x=>x.task.trim()).length}/11 talimat · {p.phases[n].movements.length} hareket</p>)}<p>Görevler: {p.tasks.filter(x=>x.done).length}/{p.tasks.length}</p></details>)}{new Set(ordered.map(p=>p.opponent.trim().toLowerCase()).filter(Boolean)).size>1&&<p role="alert">Senaryolarda farklı rakip isimleri var; dışa aktarmadan önce doğrulayın.</p>}<button type="button" disabled={ordered.length!==scenarioNames.length} onClick={download}>Tüm maç planını indir (JSON)</button>{exportError&&<p role="alert">{exportError}</p>}</section><nav className="tabs" aria-label="Taktik senaryoları" style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>{scenarioNames.map(n=><button type="button" key={n} className={scenario===n?'active':''} aria-pressed={scenario===n} onClick={()=>setScenario(n)}>{n}</button>)}</nav>{scenarioNames.map(n=><div key={n} hidden={scenario!==n}><CoachPlan evidence={evidence} scenario={n} onSnapshot={receive}/></div>)}</section>
 }
 const phaseNames=['In Possession','Out of Possession','Transition'] as const;
 type Phase=typeof phaseNames[number];
@@ -72,7 +77,8 @@ function tacticalReview(e:string){
  if(xg&&shots)items.push({finding:'Kaynak xG (ev/deplasman): '+xg[1]+'/'+xg[2],action:'Şut kalitesi ve bitiricilik farkını incele; tek maçtan kalıcı zayıflık çıkarma.'});
  return items;
 }
-function CoachPlan({evidence,scenario}:{evidence:string[];scenario:string}){
+type CoachSnapshot={version:number;scenario:string;opponent:string;objective:string;notes:string;tasks:{id:number;label:string;done:boolean}[];phase:Phase;phases:Record<Phase,ReturnType<typeof initialPhase>>};
+function CoachPlan({evidence,scenario,onSnapshot}:{evidence:string[];scenario:string;onSnapshot?:(p:CoachSnapshot)=>void}){
  const [opponent,setOpponent]=useState(''),[objective,setObjective]=useState(''),[notes,setNotes]=useState(''),[tasks,setTasks]=useState<{id:number;label:string;done:boolean}[]>([]),[draft,setDraft]=useState('');
  const [phase,setPhase]=useState<Phase>('In Possession');
  const [phases,setPhases]=useState(()=>({'In Possession':initialPhase(),'Out of Possession':initialPhase(),Transition:initialPhase()}));
@@ -81,6 +87,7 @@ function CoachPlan({evidence,scenario}:{evidence:string[];scenario:string}){
  const [saveStatus,setSaveStatus]=useState('');
  const storageKey='tactiqra.coach.v1.'+scenario;
  const snapshot=()=>({version:1,scenario,opponent,objective,notes,tasks,phase,phases});
+ useEffect(()=>{onSnapshot?.(snapshot())},[scenario,opponent,objective,notes,tasks,phase,phases,onSnapshot]);
  const restore=(raw:string)=>{const v=validateCoachPlan(JSON.parse(raw),scenario);if(!window.confirm('Bu senaryodaki mevcut taslak değiştirilecek. Devam?'))return;setOpponent(v.opponent);setObjective(v.objective);setNotes(v.notes);setTasks(v.tasks);setPhase(v.phase);setPhases(v.phases);setDraft('');setSaveStatus('Plan açıldı.');};
  const saveLocal=()=>{try{const v=snapshot();validateCoachPlan(v,scenario);if(localStorage.getItem(storageKey)!==null&&!window.confirm('Mevcut yerel kayıt değiştirilecek. Devam?'))return;localStorage.setItem(storageKey,JSON.stringify(v));setSaveStatus('Bu tarayıcıya kaydedildi.')}catch{setSaveStatus('Plan kaydedilemedi. JSON indirmeyi deneyin.')}};
  const loadLocal=()=>{try{const raw=localStorage.getItem(storageKey);if(!raw){setSaveStatus('Kayıt bulunamadı.');return}restore(raw)}catch{setSaveStatus('Kayıt okunamadı veya geçersiz.')}};

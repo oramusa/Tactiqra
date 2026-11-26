@@ -117,6 +117,20 @@ def attacking_patterns(events, team_id, opponent_id):
         result[side]=row
     return result
 
+def defensive_weakness(events, team_id, opponent_id, attack, losses, fullbacks, set_pieces):
+    """Observed conceded events, not inferred off-ball defensive gaps."""
+    result={}
+    for side,tid,other in (('own',team_id,'opponent'),('opponent',opponent_id,'own')):
+        conceded=attack[other]
+        shots=[e for e in events if e['type']['name']=='Shot' and (e.get('team') or {}).get('id')!=tid and (e.get('team') or {}).get('id') in (team_id,opponent_id)]
+        located=[]
+        for e in shots:
+            p=e.get('location')
+            if isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80))):
+                located.append({'id':e['id'],'x':p[0],'y':p[1],'goal':((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal'})
+        result[side]={'shots':len(shots),'located_shots':located,'third_entries':conceded['third_entries'],'box_entries':conceded['box_entries'],'loss_covered':losses[other]['covered'],'loss_candidates':losses[other]['candidates'],'fullback_candidates':fullbacks[other]['candidates'],'set_piece_classified':set_pieces[other]['classified'],'set_piece_shots':set_pieces[other]['categories']}
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -412,6 +426,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             row['set_pieces'] = set_piece_summary(events,team_id,opp)
             row['flank_entries'] = flank_entries(events,team_id,opp)
             row['fullback_loss_candidates'] = fullback_loss_candidates(events,team_id,opp,loss_windows=row['loss_to_shot'])
+            row['defensive_weakness'] = defensive_weakness(events,team_id,opp,row['attacking_patterns'],row['loss_to_shot'],row['fullback_loss_candidates'],row['set_pieces'])
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}

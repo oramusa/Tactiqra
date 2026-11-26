@@ -130,3 +130,38 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'Box locations use raw StatsBomb shot coordinates; direction not independently verified.',
             'Goal origins use a 15-second same-possession window; absence of a tag does not establish absence of an error.',
             'Descriptive evidence, not causal tactical conclusions.']}
+
+@router.get('/historical-match-catalog')
+def historical_match_catalog():
+    if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
+        return {'status':'not_configured','matches':[]}
+    try:
+        rows = read_source('matches/11/90.json')
+        matches = [{'match_id':m['match_id'],'date':m['match_date'],
+                    'home':m['home_team']['home_team_name'],'away':m['away_team']['away_team_name']}
+                   for m in rows if m.get('match_status')=='available' and type(m.get('match_id')) is int]
+        return {'status':'ready','matches':sorted(matches,key=lambda m:(m['date'],m['match_id']),reverse=True)}
+    except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        raise HTTPException(503,'Historical catalog unavailable') from exc
+
+@router.get('/historical-match/{match_id}')
+def historical_match(match_id: int):
+    catalog = historical_match_catalog()
+    if catalog['status'] != 'ready':
+        raise HTTPException(503,'Historical pilot not configured')
+    match = next((m for m in catalog['matches'] if m['match_id']==match_id),None)
+    if match is None:
+        raise HTTPException(404,'Match not in available catalog')
+    try:
+        meta = next(m for m in read_source('matches/11/90.json') if m['match_id']==match_id)
+        home,away = meta['home_team']['home_team_id'],meta['away_team']['away_team_id']
+        events = read_source(f'events/{match_id}.json')
+        teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
+        if not {home,away}.issubset(teams):
+            raise ValueError('Team mismatch')
+        a,b = shot_summary(events,home,away)
+        return {**match,'status':'provisional','home_stats':a,'away_stats':b,
+                'source':BASE+f'events/{match_id}.json',
+                'limitations':['Historical event data; shot goals may exclude own goals.']}
+    except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        raise HTTPException(503,'Historical match data unavailable') from exc

@@ -245,11 +245,11 @@ def flank_entries(events, team_id, opponent_id):
             row['entries'].append({'event_id':e['id'],'lane':lane,'start':a[:2],'end':b[:2],'minute':e.get('minute'),'player':(e.get('player') or {}).get('name')})
     return result
 
-def fullback_loss_candidates(events, team_id, opponent_id):
+def fullback_loss_candidates(events, team_id, opponent_id, *, loss_windows=None):
     """Explicit fullback-position loss tags preceding opposing shots; not tracking."""
     positions={'Left Back','Right Back','Left Wing Back','Right Wing Back'}
     by_id={e.get('id'):e for e in events if isinstance(e,dict) and isinstance(e.get('id'),str)}
-    windows=loss_to_shot(events,team_id,opponent_id)
+    windows=loss_windows if loss_windows is not None else loss_to_shot(events,team_id,opponent_id)
     result={}
     for side,window in windows.items():
         candidates=[]
@@ -304,7 +304,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
             row['set_pieces'] = set_piece_summary(events,217,opp)
             row['flank_entries'] = flank_entries(events,217,opp)
-            row['fullback_loss_candidates'] = fullback_loss_candidates(events,217,opp)
+            row['fullback_loss_candidates'] = fullback_loss_candidates(events,217,opp,loss_windows=row['loss_to_shot'])
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}

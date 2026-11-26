@@ -182,6 +182,38 @@ def set_piece_intelligence(events, team_id, opponent_id):
         result[side]=rows
     return result
 
+def player_intelligence(events, team_id, opponent_id):
+    """Per-player event counts, not per-90 or ability ratings."""
+    result={'own':{},'opponent':{}}
+    for e in events:
+        tid=(e.get('team') or {}).get('id')
+        p=e.get('player') or {}
+        pid=p.get('id')
+        if tid not in (team_id,opponent_id) or type(pid) is not int:
+            continue
+        side='own' if tid==team_id else 'opponent'
+        row=result[side].setdefault(pid,{'id':pid,'name':p.get('name'),'passes':0,'completed':0,'shots':0,'goals':0,'pressures':0,'recoveries':0,'losses':0,'locations':[],'evidence':[]})
+        kind=e['type']['name']
+        if kind=='Pass':
+            row['passes']+=1
+            row['completed']+=int((e.get('pass') or {}).get('outcome') is None)
+        elif kind=='Shot':
+            row['shots']+=1
+            row['goals']+=int(((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal')
+        elif kind=='Pressure':
+            row['pressures']+=1
+        elif kind=='Ball Recovery' and not (e.get('ball_recovery') or {}).get('recovery_failure'):
+            row['recoveries']+=1
+        elif kind in ('Dispossessed','Miscontrol','Error'):
+            row['losses']+=1
+        else:
+            continue
+        row['evidence'].append(e['id'])
+        loc=e.get('location')
+        if isinstance(loc,list) and len(loc)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(loc[:2],(120,80))):
+            row['locations'].append({'id':e['id'],'kind':kind,'x':loc[0],'y':loc[1]})
+    return {side:list(rows.values()) for side,rows in result.items()}
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -480,6 +512,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             row['transition_intelligence'] = transition_intelligence(events,row['recovery_to_shot'],row['loss_to_shot'])
             row['defensive_weakness'] = defensive_weakness(events,team_id,opp,row['attacking_patterns'],row['loss_to_shot'],row['fullback_loss_candidates'],row['set_pieces'])
             row['set_piece_intelligence'] = set_piece_intelligence(events,team_id,opp)
+            row['player_intelligence'] = player_intelligence(events,team_id,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}

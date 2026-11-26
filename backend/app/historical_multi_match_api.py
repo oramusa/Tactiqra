@@ -73,7 +73,8 @@ def goal_origins(events, team_id):
     def seconds(e):
         try:
             h,m,s = e['timestamp'].split(':')
-            return int(h)*3600 + int(m)*60 + float(s)
+            value = int(h)*3600 + int(m)*60 + float(s)
+            return value if isfinite(value) and value >= 0 and 0 <= int(m) < 60 and 0 <= float(s) < 60 and int(h) >= 0 else None
         except (KeyError, ValueError, TypeError, AttributeError):
             return None
     goals = []
@@ -359,6 +360,8 @@ def historical_match_catalog():
         matches = [{'match_id':m['match_id'],'date':m['match_date'],
                     'home':m['home_team']['home_team_name'],'away':m['away_team']['away_team_name']}
                    for m in rows if m.get('match_status')=='available' and type(m.get('match_id')) is int]
+        if len({m['match_id'] for m in matches}) != len(matches):
+            raise ValueError('Duplicate catalog match identity')
         return {'status':'ready','matches':sorted(matches,key=lambda m:(m['date'],m['match_id']),reverse=True)}
     except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
         raise HTTPException(503,'Historical catalog unavailable') from exc

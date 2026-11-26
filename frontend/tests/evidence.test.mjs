@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {isTacticalEvidence,evidenceKey,evidenceText} from '../src/evidence.ts';
+const fixture=()=>({version:1,module:'MatchIQ',provider:'StatsBomb',scope:'Historical LaLiga',title:'Match report',observation:'Shot summary',coverage:{matched:1,eligible:1,analyzed:1},matches:[{matchId:123,source:'https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/123.json',eventIds:['a','b']}],limitations:['Historical only']});
+test('valid evidence and aggregate without event IDs',()=>{const e=fixture();assert.equal(isTacticalEvidence(e),true);e.matches[0].eventIds=[];assert.equal(isTacticalEvidence(e),true)});
+test('invalid coverage',()=>{for(const c of [{matched:2,eligible:1,analyzed:1},{matched:1,eligible:2,analyzed:1},{matched:-1,eligible:1,analyzed:1},{matched:0.5,eligible:1,analyzed:1}])assert.equal(isTacticalEvidence({...fixture(),coverage:c}),false)});
+test('reject invalid provider and module',()=>{assert.equal(isTacticalEvidence({...fixture(),provider:'unknown'}),false);assert.equal(isTacticalEvidence({...fixture(),module:'unknown'}),false)});
+test('reject mismatched source identity and hostile URL',()=>{for(const source of ['https://raw.githubusercontent.com/statsbomb/open-data/master/data/events/456.json','https://example.com/events/123.json','javascript:alert(1)']){const e=fixture();e.matches[0].source=source;assert.equal(isTacticalEvidence(e),false)}});
+test('reject duplicate match identity',()=>{const e=fixture();e.matches.push({...e.matches[0]});assert.equal(isTacticalEvidence(e),false)});
+test('reject missing and blank fields',()=>{for(const e of [null,{}, {...fixture(),title:' '},{...fixture(),matches:[]},{...fixture(),limitations:[null]}])assert.equal(isTacticalEvidence(e),false)});
+test('reject invalid event IDs',()=>{const e=fixture();e.matches[0].eventIds=[' '];assert.equal(isTacticalEvidence(e),false)});
+test('dedup key ignores event order and repeated event IDs',()=>{const a=fixture(),b=fixture();b.matches[0].eventIds=['b','a','a'];assert.equal(evidenceKey(a),evidenceKey(b))});
+test('different match identity changes key',()=>{const a=fixture(),b=fixture();b.matches[0].matchId=456;b.matches[0].source=b.matches[0].source.replace('123','456');assert.notEqual(evidenceKey(a),evidenceKey(b))});
+test('text retains provenance and limitations',()=>{const e=fixture(),s=evidenceText(e);for(const v of [e.matches[0].source,'a, b','Historical only','Coverage 1/1'])assert.ok(s.includes(v))});

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from app.historical_multi_match_api import (
     loss_to_shot, recovery_to_shot, set_piece_summary,
     flank_entries, fullback_loss_candidates, validate_event_identity,
@@ -92,6 +93,14 @@ class TacticalIntelligenceTests(unittest.TestCase):
         result=flank_entries(rows,1,2)['own']
         self.assertEqual((result['completed'],result['located']),(5,4))
         self.assertEqual([e['lane'] for e in result['entries']],['left','center','right'])
+
+    def test_fullback_reuses_precomputed_loss_windows(self):
+        rows=[event('l','Dispossessed',1,0,position={'name':'Right Back'},location=[60,10]),
+              event('s','Shot',2,10)]
+        expected=fullback_loss_candidates(rows,1,2)
+        windows=loss_to_shot(rows,1,2)
+        with patch('app.historical_multi_match_api.loss_to_shot',side_effect=AssertionError('Unexpected rescan')):
+            self.assertEqual(fullback_loss_candidates(rows,1,2,loss_windows=windows),expected)
 
     def test_fullback_position_and_raw_location(self):
         loss=event('l','Dispossessed',1,0,position={'name':'Right Back'},location=[60,10])

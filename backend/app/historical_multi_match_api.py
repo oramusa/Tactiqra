@@ -160,7 +160,19 @@ def historical_match(match_id: int):
         if not {home,away}.issubset(teams):
             raise ValueError('Team mismatch')
         a,b = shot_summary(events,home,away)
-        return {**match,'status':'provisional','home_stats':a,'away_stats':b,
+        shots = []
+        for e in events:
+            if not isinstance(e,dict) or (e.get('type') or {}).get('name') != 'Shot':
+                continue
+            shot = e.get('shot') or {}
+            loc = e.get('location')
+            valid = isinstance(loc,list) and len(loc)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(loc[:2],(120,80)))
+            xg = shot.get('statsbomb_xg')
+            shots.append({'event_id':e['id'],'side':'home' if (e.get('team') or {}).get('id')==home else 'away',
+                          'location':loc[:2] if valid else None,'xg':xg if type(xg) in (int,float) and isfinite(xg) and 0<=xg<=1 else None,
+                          'player':(e.get('player') or {}).get('name'),'minute':e.get('minute'),
+                          'outcome':(shot.get('outcome') or {}).get('name')})
+        return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,
                 'source':BASE+f'events/{match_id}.json',
                 'limitations':['Historical event data; shot goals may exclude own goals.']}
     except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:

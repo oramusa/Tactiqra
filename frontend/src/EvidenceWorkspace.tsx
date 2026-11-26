@@ -1,0 +1,13 @@
+import React,{useState} from 'react';
+import {evidenceKey,evidenceText,type TacticalEvidence} from './evidence';
+export default function EvidenceWorkspace({items,legacy,onRemove,onToggle,excluded}:{items:TacticalEvidence[];legacy:string[];onRemove:(key:string)=>void;onToggle:(key:string)=>void;excluded:string[]}){
+ const [query,setQuery]=useState(''),[module,setModule]=useState('all');
+ const [notes,setNotes]=useState<Record<string,string>>({});
+ const q=query.trim().toLocaleLowerCase();
+ const visible=items.filter(e=>(module==='all'||e.module===module)&&evidenceText(e).toLocaleLowerCase().includes(q));
+ function download(){
+  const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,evidence:items.map(e=>({evidence:e,included:!excluded.includes(evidenceKey(e)),coachNote:notes[evidenceKey(e)]??''})),legacy},null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='tactiqra-evidence.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
+ return <section className="panel"><h3>Evidence Library</h3><p>{items.length} yapılandırılmış · {legacy.length} eski metin kaydı · Oturum içi çalışma alanı</p><label>Kanıt ara <input value={query} onChange={e=>setQuery(e.target.value)}/></label><label>Modül <select value={module} onChange={e=>setModule(e.target.value)}><option value="all">Tümü</option><option>OpponentIQ</option><option>MatchIQ</option></select></label><button type="button" onClick={download}>JSON indir</button>{visible.map(e=>{const key=evidenceKey(e);return <details key={key}><summary>{e.title} · {e.module} · {e.coverage.matched}/{e.coverage.eligible}</summary><p>{e.scope}</p><p>{e.observation}</p><p>{e.recommendation}</p><label><input type="checkbox" checked={!excluded.includes(key)} onChange={()=>onToggle(key)}/> Maç planına dahil et</label><label>Antrenör notu <textarea value={notes[key]??''} onChange={ev=>setNotes(old=>({...old,[key]:ev.target.value}))}/></label>{e.matches.map(m=><p key={m.matchId}><a href={m.source} target="_blank" rel="noreferrer">Maç {m.matchId}</a> · {m.eventIds.join(', ')}</p>)}<p>{e.limitations.join(' · ')}</p><button type="button" onClick={()=>{if(window.confirm('Kanıtı oturum kütüphanesinden kaldır?'))onRemove(key)}}>Kaldır</button></details>})}{!visible.length&&<p>Filtreye uygun yapılandırılmış kanıt yok.</p>}{module==='all'&&legacy.filter(e=>e.toLocaleLowerCase().includes(q)).map(e=><details key={e}><summary>Eski metin kanıtı</summary><p>{e}</p></details>)}</section>
+}

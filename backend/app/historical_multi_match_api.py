@@ -21,6 +21,22 @@ def read_source(path):
         raise ValueError('Invalid source')
     return rows
 
+def validate_event_identity(events):
+    """Reject ambiguous event identities before aggregating a match."""
+    seen = set()
+    for event in events:
+        if not isinstance(event, dict):
+            raise ValueError('Invalid event record')
+        eid = event.get('id')
+        if not isinstance(eid, str) or not eid.strip() or eid in seen:
+            raise ValueError('Missing or duplicate event identity')
+        seen.add(eid)
+        if not isinstance(event.get('type'), dict) or not isinstance(event['type'].get('name'), str):
+            raise ValueError('Invalid event type')
+        for key in ('team','player','position','shot','pass','ball_recovery','play_pattern','possession_team'):
+            if event.get(key) is not None and not isinstance(event[key], dict):
+                raise ValueError('Invalid event field: '+key)
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -264,6 +280,8 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
                     and m.get('match_status') == 'available'
                     and type(m.get('match_id')) is int]
         eligible.sort(key=lambda m: (m.get('match_date',''),m['match_id']), reverse=True)
+        if len({m['match_id'] for m in eligible}) != len(eligible):
+            raise ValueError('Duplicate catalog match identity')
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         raise HTTPException(503, 'Historical match catalog unavailable') from exc
     results = []
@@ -276,6 +294,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
                'source':BASE + f'events/{mid}.json'}
         try:
             events = read_source(f'events/{mid}.json')
+            validate_event_identity(events)
             teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
             if not {217,opp}.issubset(teams):
                 raise ValueError('Team mismatch')
@@ -287,8 +306,10 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['flank_entries'] = flank_entries(events,217,opp)
             row['fullback_loss_candidates'] = fullback_loss_candidates(events,217,opp)
             row['status'] = 'provisional'
-        except (OSError, ValueError, TypeError, AttributeError) as exc:
+        except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+            row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}
             row['status'] = 'unavailable'
+            row['reason'] = 'source_or_validation_failure'
         results.append(row)
     valid = [r for r in results if r['status']=='provisional']
     return {'status':'provisional' if valid else 'insufficient_data',

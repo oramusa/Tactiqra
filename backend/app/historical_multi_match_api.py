@@ -87,6 +87,58 @@ def goal_origins(events, team_id):
         goals.append({'goal_event_id':e.get('id'),'side':'own' if scoring==team_id else 'opponent','minute':e.get('minute'),'player':(e.get('player') or {}).get('name'),'play_pattern':(e.get('play_pattern') or {}).get('name'),'window_status':'available' if covered else 'incomplete','preceding_events':list(reversed(evidence)) if covered else []})
     return goals
 
+def loss_to_shot(events, team_id, opponent_id):
+    """Nearest explicit loss tag before a shot, within 15 seconds and one period.
+    Temporal association only; no inferred possession change or causation."""
+    def clock(e):
+        try:
+            h,m,s = e['timestamp'].split(':')
+            t = int(h)*3600 + int(m)*60 + float(s)
+            return t if isfinite(t) and t >= 0 else None
+        except (KeyError, ValueError, TypeError, AttributeError):
+            return None
+    result = {'own': {'shots':0,'covered':0,'candidates':[]},
+              'opponent': {'shots':0,'covered':0,'candidates':[]}}
+    for i,e in enumerate(events):
+        if not isinstance(e,dict) or (e.get('type') or {}).get('name') != 'Shot':
+            continue
+        tid = (e.get('team') or {}).get('id')
+        if tid not in (team_id,opponent_id):
+            continue
+        row = result['own' if tid==team_id else 'opponent']
+        row['shots'] += 1
+        t,period = clock(e),e.get('period')
+        if t is None or type(period) is not int:
+            continue
+        candidate = None
+        complete = True
+        for j in range(i-1,-1,-1):
+            p = events[j]
+            if not isinstance(p,dict):
+                complete = False
+                break
+            if p.get('period') != period:
+                break
+            pt = clock(p)
+            if pt is None or pt > t:
+                complete = False
+                break
+            if t-pt > 15:
+                break
+            kind = (p.get('type') or {}).get('name')
+            other = (p.get('team') or {}).get('id')
+            if candidate is None and other == (opponent_id if tid==team_id else team_id) and kind in ('Dispossessed','Miscontrol','Error') and isinstance(p.get('id'),str):
+                candidate = {'loss_event_id':p['id'],'shot_event_id':e['id'],
+                             'loss_type':kind,'seconds':round(t-pt,3),
+                             'loss_player':(p.get('player') or {}).get('name'),
+                             'shot_player':(e.get('player') or {}).get('name'),
+                             'minute':e.get('minute'),'goal':((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal'}
+        if complete:
+            row['covered'] += 1
+            if candidate is not None:
+                row['candidates'].append(candidate)
+    return result
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -116,6 +168,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
                 raise ValueError('Team mismatch')
             row['own'], row['opponent'] = shot_summary(events,217,opp)
             row['goal_origins'] = goal_origins(events,217)
+            row['loss_to_shot'] = loss_to_shot(events,217,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'
@@ -129,6 +182,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'Shot goals may exclude own goals. xG sums cover only shots with source xG.',
             'Box locations use raw StatsBomb shot coordinates; direction not independently verified.',
             'Goal origins use a 15-second same-possession window; absence of a tag does not establish absence of an error.',
+            'Loss-to-shot candidates use nearest opposing explicit loss tag within 15 seconds in the same period, including across possessions; not proof of turnover causation.',
             'Descriptive evidence, not causal tactical conclusions.']}
 
 @router.get('/historical-match-catalog')

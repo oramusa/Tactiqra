@@ -291,13 +291,13 @@ def historical_teams():
         raise HTTPException(503,'Historical team catalog unavailable') from exc
 
 @router.get('/historical-multi-match')
-def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
+def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Query(217, ge=1)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
         return {'status':'not_configured', 'matches':[]}
     try:
         catalog = read_source('matches/11/90.json')
         eligible = [m for m in catalog if isinstance(m, dict)
-                    and 217 in ((m.get('home_team') or {}).get('home_team_id'),
+                    and team_id in ((m.get('home_team') or {}).get('home_team_id'),
                                 (m.get('away_team') or {}).get('away_team_id'))
                     and m.get('match_status') == 'available'
                     and type(m.get('match_id')) is int]
@@ -306,11 +306,13 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             raise ValueError('Duplicate catalog match identity')
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         raise HTTPException(503, 'Historical match catalog unavailable') from exc
+    if not eligible:
+        return {'status':'insufficient_data','team_id':team_id,'requested_matches':limit,'analyzed_matches':0,'coverage_ratio':0,'matches':[], 'limitations':['No available historical catalog matches for this team.']}
     results = []
     for m in eligible[:limit]:
         mid = m['match_id']
         home, away = m['home_team'], m['away_team']
-        opp = away['away_team_id'] if home['home_team_id'] == 217 else home['home_team_id']
+        opp = away['away_team_id'] if home['home_team_id'] == team_id else home['home_team_id']
         row = {'match_id':mid, 'date':m.get('match_date'),
                'home':home.get('home_team_name'), 'away':away.get('away_team_name'),
                'source':BASE + f'events/{mid}.json'}
@@ -318,15 +320,15 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             events = read_source(f'events/{mid}.json')
             validate_event_identity(events)
             teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
-            if not {217,opp}.issubset(teams):
+            if not {team_id,opp}.issubset(teams):
                 raise ValueError('Team mismatch')
-            row['own'], row['opponent'] = shot_summary(events,217,opp)
-            row['goal_origins'] = goal_origins(events,217)
-            row['loss_to_shot'] = loss_to_shot(events,217,opp)
-            row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
-            row['set_pieces'] = set_piece_summary(events,217,opp)
-            row['flank_entries'] = flank_entries(events,217,opp)
-            row['fullback_loss_candidates'] = fullback_loss_candidates(events,217,opp,loss_windows=row['loss_to_shot'])
+            row['own'], row['opponent'] = shot_summary(events,team_id,opp)
+            row['goal_origins'] = goal_origins(events,team_id)
+            row['loss_to_shot'] = loss_to_shot(events,team_id,opp)
+            row['recovery_to_shot'] = recovery_to_shot(events,team_id,opp)
+            row['set_pieces'] = set_piece_summary(events,team_id,opp)
+            row['flank_entries'] = flank_entries(events,team_id,opp)
+            row['fullback_loss_candidates'] = fullback_loss_candidates(events,team_id,opp,loss_windows=row['loss_to_shot'])
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}
@@ -335,7 +337,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
         results.append(row)
     valid = [r for r in results if r['status']=='provisional']
     return {'status':'provisional' if valid else 'insufficient_data',
-            'team_id':217,'competition_id':11,'season_id':90,
+            'team_id':team_id,'competition_id':11,'season_id':90,
             'requested_matches':limit,'analyzed_matches':len(valid),
             'coverage_ratio':len(valid)/limit,'matches':results,
             'limitations':['Historical available matches only; not current form.',

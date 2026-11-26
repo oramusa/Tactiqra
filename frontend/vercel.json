@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://tactiqra-9z7h-ptptra4rv-oramusa.vercel.app/api/:path*"
+      "destination": "https://tactiqra-9z7h-git-feat-tactiqra-dark-dashboard-v1-oramusa.vercel.app/api/:path*"
     }
   ]
 }

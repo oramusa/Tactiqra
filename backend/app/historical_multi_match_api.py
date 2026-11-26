@@ -223,7 +223,35 @@ def historical_match(match_id: int):
                 n['x']=round(n['x']/n['located'],3) if n['located'] else None
                 n['y']=round(n['y']/n['located'],3) if n['located'] else None
             networks[side]={'attempts':attempts,'completed':completed,'mapped':mapped,'nodes':list(nodes.values()),'links':sorted(links.values(),key=lambda l:-l['count'])}
-        return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,
+        timeline = []
+        for e in events:
+            if not isinstance(e,dict):
+                continue
+            tid = (e.get('team') or {}).get('id')
+            if tid not in (home,away) or not isinstance(e.get('id'),str):
+                continue
+            kind = (e.get('type') or {}).get('name')
+            detail = None
+            replacement = None
+            if kind == 'Shot':
+                detail = ((e.get('shot') or {}).get('outcome') or {}).get('name')
+                kind = 'Goal' if detail == 'Goal' else 'Shot'
+            elif kind in ('Foul Committed','Bad Behaviour'):
+                detail = ((e.get('foul_committed' if kind=='Foul Committed' else 'bad_behaviour') or {}).get('card') or {}).get('name')
+                if not detail:
+                    continue
+                kind = 'Card'
+            elif kind == 'Substitution':
+                sub = e.get('substitution') or {}
+                replacement = (sub.get('replacement') or {}).get('name')
+                detail = (sub.get('outcome') or {}).get('name')
+            elif kind not in ('Own Goal For','Own Goal Against'):
+                continue
+            timeline.append({'event_id':e['id'],'side':'home' if tid==home else 'away',
+                             'kind':kind,'detail':detail,'replacement':replacement,
+                             'player':(e.get('player') or {}).get('name'),
+                             'minute':e.get('minute'),'second':e.get('second'),'period':e.get('period')})
+        return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,'timeline':timeline,
                 'pass_networks':networks,
                 'heatmap':{side:list(rows.values()) for side,rows in heatmap.items()},
                 'source':BASE+f'events/{match_id}.json',

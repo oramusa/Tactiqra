@@ -1,6 +1,7 @@
 import React,{useState} from 'react';
 type Side={shots:number;goals_from_shots:number;xg_sum:number|null;xg_count:number;box_shots:number;located_shots:number;goal_event_ids:string[]};
-type Match={match_id:number;date:string;home:string;away:string;source:string;status:string;own?:Side;opponent?:Side};
+type GoalOrigin={goal_event_id:string;side:'own'|'opponent';minute:number;player:string|null;play_pattern:string|null;window_status:string;preceding_events:{type:string;event_id:string;player:string|null;seconds_before_goal:number;location?:number[]}[]};
+type Match={match_id:number;date:string;home:string;away:string;source:string;status:string;own?:Side;opponent?:Side;goal_origins?:GoalOrigin[]};
 type Result={status:string;requested_matches:number;analyzed_matches:number;matches:Match[];limitations?:string[]};
 export default function HistoricalMultiMatch(){
  const [limit,setLimit]=useState(3),[data,setData]=useState<Result|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState('');
@@ -15,6 +16,9 @@ export default function HistoricalMultiMatch(){
  const scored=sum('own','goals_from_shots'), conceded=sum('opponent','goals_from_shots');
  const ownShots=sum('own','shots'), oppShots=sum('opponent','shots');
  const signed=(v:number)=>(v>0?'+':'')+v.toFixed(2);
+ const originMatches=valid.filter(m=>Array.isArray(m.goal_origins));
+ const origins=originMatches.flatMap(m=>(m.goal_origins||[]).map(g=>({...g,match:m})));
+ const coveredOrigins=origins.filter(g=>g.window_status==='available');
  const chartMax=Math.max(1,...comparable.flatMap(m=>[m.own!.xg_sum!,m.opponent!.xg_sum!]));
  const ownBelow=comparable.filter(m=>m.own!.goals_from_shots<m.own!.xg_sum!).length;
  const oppAbove=comparable.filter(m=>m.opponent!.goals_from_shots>m.opponent!.xg_sum!).length;
@@ -27,6 +31,11 @@ export default function HistoricalMultiMatch(){
  ['Gol − xG',complete('own')?signed(scored-xg('own')):'—'],
  ['Yenilen gol − xGA',complete('opponent')?signed(conceded-xg('opponent')):'—']
  ].map(([label,value])=><div className="metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+ <h3>Goal Origin Intelligence</h3>
+ <p>Gol öncesi aynı topa sahip olma zinciri · 15 saniye · StatsBomb</p>
+ <p>Olay verisi mevcut maçlar: {originMatches.length}/{n} · İncelenebilir gol pencereleri: {coveredOrigins.length}/{origins.length}</p>
+ {(['own','opponent'] as const).map(side=>{const goals=origins.filter(g=>g.side===side),covered=goals.filter(g=>g.window_status==='available');const patterns=Array.from(new Set(goals.map(g=>g.play_pattern||'Bilinmiyor')));return <div key={side} style={{marginBottom:18}}><h4>{side==='own'?'Atılan goller':'Yenilen goller'}</h4><div className="metrics">{[['Şut golleri',goals.length],['Öncesinde kayıtlı hata / top kaybı',covered.length?covered.filter(g=>g.preceding_events.length>0).length+'/'+covered.length:'—'],...patterns.map(p=>[p,goals.filter(g=>(g.play_pattern||'Bilinmiyor')===p).length])].map(([label,value])=><div className="metric" key={String(label)}><span>{label}</span><strong>{value}</strong></div>)}</div>{goals.map(g=><details key={g.goal_event_id} style={{padding:'8px 0'}}><summary>{g.match.date} · {g.minute}' · {g.player||'Bilinmiyor'} · {g.play_pattern||'Bilinmiyor'}</summary><p>Gol olay kimliği: {g.goal_event_id}</p><p>{g.window_status!=='available'?'Olay penceresi eksik.':g.preceding_events.length?'Kaynakta eşleşen önceki olaylar:':'Bu pencerede eşleşen hata / top kaybı etiketi yok.'}</p>{g.preceding_events.map(e=><p key={e.event_id}>{e.type} · {e.player||'Bilinmiyor'} · {e.seconds_before_goal} sn önce · {e.event_id}</p>)}<a href={g.match.source} target="_blank" rel="noreferrer">Kaynak olay dosyası</a></details>)}</div>})}
+ <p className="data-note">Etiket yokluğu hata yokluğu anlamına gelmez. Olay sırası nedensellik kanıtı değildir.</p>
  <h3>Maç bazında xG karşılaştırması</h3>
  {comparable.map(m=>{const a=m.own!.xg_sum!,b=m.opponent!.xg_sum!,max=chartMax;return <div key={m.match_id} style={{marginBottom:14}}><strong>{m.date} · {m.home} – {m.away}</strong>{[['Barcelona',a,'#60a5fa'],['Rakip',b,'#f59e0b']].map(([label,value,color])=><div key={String(label)} style={{display:'flex',alignItems:'center',gap:10,marginTop:5}}><span style={{width:85}}>{label}</span><div style={{flex:1,background:'rgba(128,128,128,.15)',height:10,borderRadius:5}}><div style={{width:(Number(value)/max*100)+'%',background:String(color),height:10,borderRadius:5}}/></div><span>{Number(value).toFixed(2)}</span></div>)}</div>})}
  <p className="data-note">Tüm maçlar aynı xG ölçeğinde gösterilir. xG kapsamı eksik maçlar grafiğe alınmaz.</p>

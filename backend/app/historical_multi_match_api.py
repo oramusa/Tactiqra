@@ -223,6 +223,35 @@ def historical_match(match_id: int):
                 n['x']=round(n['x']/n['located'],3) if n['located'] else None
                 n['y']=round(n['y']/n['located'],3) if n['located'] else None
             networks[side]={'attempts':attempts,'completed':completed,'mapped':mapped,'nodes':list(nodes.values()),'links':sorted(links.values(),key=lambda l:-l['count'])}
+        players = {'home':{},'away':{}}
+        for e in events:
+            if not isinstance(e,dict):
+                continue
+            tid = (e.get('team') or {}).get('id')
+            p = e.get('player') or {}
+            pid = p.get('id')
+            if tid not in (home,away) or type(pid) is not int:
+                continue
+            side = 'home' if tid==home else 'away'
+            row = players[side].setdefault(pid,{'id':pid,'name':p.get('name'),'passes':0,'completed':0,'shots':0,'goals':0,'xg':0.0,'xg_count':0,'recoveries':0,'pressures':0,'loss_tags':0})
+            kind = (e.get('type') or {}).get('name')
+            if kind=='Pass':
+                row['passes']+=1
+                row['completed']+=int((e.get('pass') or {}).get('outcome') is None)
+            elif kind=='Shot':
+                shot=e.get('shot') or {}
+                row['shots']+=1
+                row['goals']+=int((shot.get('outcome') or {}).get('name')=='Goal')
+                xg=shot.get('statsbomb_xg')
+                if type(xg) in (int,float) and isfinite(xg) and 0<=xg<=1:
+                    row['xg']+=xg
+                    row['xg_count']+=1
+            elif kind=='Ball Recovery':
+                row['recoveries']+=int(not (e.get('ball_recovery') or {}).get('recovery_failure'))
+            elif kind=='Pressure':
+                row['pressures']+=1
+            elif kind in ('Dispossessed','Miscontrol'):
+                row['loss_tags']+=1
         timeline = []
         for e in events:
             if not isinstance(e,dict):
@@ -252,7 +281,7 @@ def historical_match(match_id: int):
                              'player':(e.get('player') or {}).get('name'),
                              'minute':e.get('minute'),'second':e.get('second'),'period':e.get('period')})
         return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,'timeline':timeline,
-                'pass_networks':networks,
+                'pass_networks':networks,'players':{side:list(rows.values()) for side,rows in players.items()},
                 'heatmap':{side:list(rows.values()) for side,rows in heatmap.items()},
                 'source':BASE+f'events/{match_id}.json',
                 'limitations':['Historical event data; shot goals may exclude own goals.']}

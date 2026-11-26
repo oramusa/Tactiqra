@@ -1,3 +1,4 @@
+import {approveBriefing,isBriefingStale} from './briefingValidation';
 import {validateCoachPlan} from './coachValidation';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -84,15 +85,10 @@ function PlayerBriefing({plans}:{plans:CoachSnapshot[]}){
  const fullscreen=async()=>{try{if(document.fullscreenElement===presentationRef.current){await document.exitFullscreen();return}if(!presentationRef.current?.requestFullscreen)throw Error('Tam ekran desteklenmiyor.');await presentationRef.current.requestFullscreen();setFullError('')}catch{setFullError('Tam ekran açılamadı; normal sunum kullanılabilir.')}};
  const step=(delta:number)=>{const index=scenarioNames.findIndex(n=>n===selected)*phaseNames.length+phaseNames.indexOf(phase);const next=Math.max(0,Math.min(scenarioNames.length*phaseNames.length-1,index+delta));setSelected(scenarioNames[Math.floor(next/phaseNames.length)]);setPhase(phaseNames[next%phaseNames.length])};
  const signature=JSON.stringify(plans);
- const stale=approved!==null&&JSON.stringify(approved.scenarios)!==signature;
+ const stale=isBriefingStale(approved,plans);
  useEffect(()=>{setConfirmed(false)},[signature]);
  const approve=()=>{try{
-  if(!confirmed||plans.length!==scenarioNames.length)throw Error('Tüm senaryoları inceleyin.');
-  if(new Set(plans.map(p=>p.scenario)).size!==scenarioNames.length||!scenarioNames.every(n=>plans.some(p=>p.scenario===n)))throw Error('Eksik veya tekrarlanan senaryo.');
-  plans.forEach(p=>validateCoachPlan(p,p.scenario));
-  if(new Set(plans.map(p=>p.opponent.trim().toLowerCase()).filter(Boolean)).size!==1||plans.some(p=>!p.opponent.trim()))throw Error('Tüm senaryolarda aynı rakip belirtilmeli.');
-  if(!plans.some(p=>phaseNames.some(n=>p.phases[n].board.some(x=>x.task.trim()))))throw Error('En az bir oyuncu talimatı gerekli.');
-  setApproved({version:1,approvedAt:new Date().toISOString(),scenarios:JSON.parse(signature)});setConfirmed(false);setError('');
+  setApproved(approveBriefing(plans,confirmed,new Date().toISOString()));setConfirmed(false);setError('');
  }catch(e){setError(e instanceof Error?e.message:'Plan onaylanamadı.')}};
  const p=approved?.scenarios.find(x=>x.scenario===selected);
  const active=p?.phases[phase];

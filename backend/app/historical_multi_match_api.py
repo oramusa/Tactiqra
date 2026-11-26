@@ -268,6 +268,28 @@ def fullback_loss_candidates(events, team_id, opponent_id, *, loss_windows=None)
         result[side]={'matched_shots':len(window['candidates']),'position_known':known,'candidates':candidates}
     return result
 
+@router.get('/historical-teams')
+def historical_teams():
+    if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
+        return {'status':'not_configured','teams':[]}
+    try:
+        teams = {}
+        for m in read_source('matches/11/90.json'):
+            if not isinstance(m,dict) or m.get('match_status')!='available' or type(m.get('match_id')) is not int:
+                continue
+            for side in ('home','away'):
+                t=m.get(side+'_team') or {}
+                tid,name=t.get(side+'_team_id'),t.get(side+'_team_name')
+                if type(tid) is not int or not isinstance(name,str) or not name.strip():
+                    continue
+                row=teams.setdefault(tid,{'team_id':tid,'name':name,'ids':set()})
+                row['ids'].add(m['match_id'])
+        return {'status':'ready','competition_id':11,'season_id':90,
+                'teams':sorted([{'team_id':r['team_id'],'name':r['name'],'catalog_matches':len(r['ids'])} for r in teams.values()],key=lambda r:r['name']),
+                'limitations':['Available catalog entries only; event files not yet validated. Historical coverage is not full-season or current-form coverage.']}
+    except (OSError,ValueError,TypeError,AttributeError,KeyError) as exc:
+        raise HTTPException(503,'Historical team catalog unavailable') from exc
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':

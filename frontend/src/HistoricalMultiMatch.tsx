@@ -47,7 +47,7 @@ function ScoutingReport({matches,requested,teamName}:{matches:Match[];requested:
  return <section><h3>Automated Scouting Report</h3><p>Kaynak bağlantılı tarihsel rapor · {matches.length}/{requested} maç</p><button onClick={download}>Raporu indir (TXT)</button><details><summary>Rapor önizleme</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:480,overflow:'auto'}}>{report}</pre></details></section>
 }
 function TacticalComparison({results,names}:{results:[Result,Result];names:[string,string]}){
- const rules=[
+ const rules:{label:string;get:(m:Match)=>LossWindow|RecoveryWindow|undefined}[]=[
  {label:'Top kaybı sonrası rakip şutu',get:(m:Match)=>m.loss_to_shot?.opponent},
  {label:'Top kazanımı sonrası kendi şutu',get:(m:Match)=>m.recovery_to_shot?.own},
  {label:'Rakip hızlı hücum şutu',get:(m:Match)=>m.recovery_to_shot?.opponent}

@@ -139,6 +139,50 @@ def loss_to_shot(events, team_id, opponent_id):
                 row['candidates'].append(candidate)
     return result
 
+def recovery_to_shot(events, team_id, opponent_id):
+    """Explicit successful recovery followed by a same-possession shot within 15s."""
+    def clock(e):
+        try:
+            h,m,s=e['timestamp'].split(':')
+            t=int(h)*3600+int(m)*60+float(s)
+            return t if isfinite(t) and t>=0 else None
+        except (KeyError,ValueError,TypeError,AttributeError):
+            return None
+    result={side:{'shots':0,'covered':0,'candidates':[]} for side in ('own','opponent')}
+    for i,e in enumerate(events):
+        if not isinstance(e,dict) or (e.get('type') or {}).get('name')!='Shot':
+            continue
+        tid=(e.get('team') or {}).get('id')
+        if tid not in (team_id,opponent_id):
+            continue
+        row=result['own' if tid==team_id else 'opponent']
+        row['shots']+=1
+        t,period,pos=clock(e),e.get('period'),e.get('possession')
+        if t is None or type(period) is not int or type(pos) is not int or (e.get('possession_team') or {}).get('id')!=tid:
+            continue
+        candidate=None
+        complete=True
+        for j in range(i-1,-1,-1):
+            p=events[j]
+            if not isinstance(p,dict):
+                complete=False
+                break
+            if p.get('period')!=period or p.get('possession')!=pos:
+                break
+            pt=clock(p)
+            if pt is None or pt>t:
+                complete=False
+                break
+            if t-pt>15:
+                break
+            if candidate is None and (p.get('type') or {}).get('name')=='Ball Recovery' and (p.get('team') or {}).get('id')==tid and not (p.get('ball_recovery') or {}).get('recovery_failure') and isinstance(p.get('id'),str):
+                candidate={'recovery_event_id':p['id'],'shot_event_id':e['id'],'seconds':round(t-pt,3),'recovery_player':(p.get('player') or {}).get('name'),'shot_player':(e.get('player') or {}).get('name'),'minute':e.get('minute'),'goal':((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal'}
+        if complete:
+            row['covered']+=1
+            if candidate is not None:
+                row['candidates'].append(candidate)
+    return result
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -169,6 +213,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['own'], row['opponent'] = shot_summary(events,217,opp)
             row['goal_origins'] = goal_origins(events,217)
             row['loss_to_shot'] = loss_to_shot(events,217,opp)
+            row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'
@@ -183,6 +228,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'Box locations use raw StatsBomb shot coordinates; direction not independently verified.',
             'Goal origins use a 15-second same-possession window; absence of a tag does not establish absence of an error.',
             'Loss-to-shot candidates use nearest opposing explicit loss tag within 15 seconds in the same period, including across possessions; not proof of turnover causation.',
+            'Recovery-to-shot uses explicit successful Ball Recovery tags within the same possession and 15 seconds; not all turnovers or counterattacks.',
             'Descriptive evidence, not causal tactical conclusions.']}
 
 @router.get('/historical-match-catalog')

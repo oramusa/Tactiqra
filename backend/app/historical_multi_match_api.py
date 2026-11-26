@@ -131,6 +131,22 @@ def defensive_weakness(events, team_id, opponent_id, attack, losses, fullbacks, 
         result[side]={'shots':len(shots),'located_shots':located,'third_entries':conceded['third_entries'],'box_entries':conceded['box_entries'],'loss_covered':losses[other]['covered'],'loss_candidates':losses[other]['candidates'],'fullback_candidates':fullbacks[other]['candidates'],'set_piece_classified':set_pieces[other]['classified'],'set_piece_shots':set_pieces[other]['categories']}
     return result
 
+def transition_intelligence(events, recoveries, losses):
+    """Reuse existing 15-second candidate windows; nested thresholds, not causal rates."""
+    by_id={e['id']:e for e in events}
+    result={}
+    for side in ('own','opponent'):
+        result[side]={}
+        for kind,windows,id_key in (('recovery',recoveries,'recovery_event_id'),('loss',losses,'loss_event_id')):
+            w=windows[side]
+            candidates=[]
+            for c in w['candidates']:
+                p=by_id[c[id_key]].get('location')
+                valid=isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80)))
+                candidates.append({**c,'origin':p[:2] if valid else None,'zone':('defensive' if p[0]<40 else 'middle' if p[0]<80 else 'attacking') if valid else None})
+            result[side][kind]={'covered':w['covered'],'shots':w['shots'],'candidates':candidates,'thresholds':{str(t):{'shots':sum(c['seconds']<=t for c in candidates),'goals':sum(c['seconds']<=t and c['goal'] for c in candidates)} for t in (5,10,15)}}
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -426,6 +442,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             row['set_pieces'] = set_piece_summary(events,team_id,opp)
             row['flank_entries'] = flank_entries(events,team_id,opp)
             row['fullback_loss_candidates'] = fullback_loss_candidates(events,team_id,opp,loss_windows=row['loss_to_shot'])
+            row['transition_intelligence'] = transition_intelligence(events,row['recovery_to_shot'],row['loss_to_shot'])
             row['defensive_weakness'] = defensive_weakness(events,team_id,opp,row['attacking_patterns'],row['loss_to_shot'],row['fullback_loss_candidates'],row['set_pieces'])
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:

@@ -214,6 +214,37 @@ def player_intelligence(events, team_id, opponent_id):
             row['locations'].append({'id':e['id'],'kind':kind,'x':loc[0],'y':loc[1]})
     return {side:list(rows.values()) for side,rows in result.items()}
 
+def spatial_network(events, team_id, opponent_id):
+    """Event density and directed completed-pass links; not tracking positions."""
+    result={}
+    for side,tid in (('own',team_id),('opponent',opponent_id)):
+        cells={}; nodes={}; links={}; counts={}
+        for e in events:
+            if (e.get('team') or {}).get('id')!=tid:
+                continue
+            kind=e['type']['name']
+            if kind not in ('Pass','Shot','Pressure','Ball Recovery','Dispossessed','Miscontrol','Error','Carry'):
+                continue
+            if kind=='Ball Recovery' and (e.get('ball_recovery') or {}).get('recovery_failure'):
+                continue
+            category='Loss' if kind in ('Dispossessed','Miscontrol','Error') else kind
+            counts[category]=counts.get(category,0)+1
+            p=e.get('location'); player=e.get('player') or {}; pid=player.get('id')
+            if isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80))):
+                x,y=min(11,int(p[0]//10)),min(7,int(p[1]//10))
+                key=(category,x,y)
+                cells[key]=cells.get(key,0)+1
+                if type(pid) is int:
+                    n=nodes.setdefault(pid,{'id':pid,'name':player.get('name'),'x':0,'y':0,'count':0})
+                    n['x']+=p[0];n['y']+=p[1];n['count']+=1
+            if kind=='Pass':
+                pas=e.get('pass') or {}; receiver=(pas.get('recipient') or {}).get('id')
+                if pas.get('outcome') is None and type(pid) is int and type(receiver) is int and pid!=receiver:
+                    edge=links.setdefault((pid,receiver),{'from':pid,'to':receiver,'count':0,'ids':[]})
+                    edge['count']+=1;edge['ids'].append(e['id'])
+        result[side]={'counts':counts,'cells':[{'kind':k,'x':x,'y':y,'count':n} for (k,x,y),n in cells.items()],'nodes':list(nodes.values()),'links':list(links.values())}
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -513,6 +544,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             row['defensive_weakness'] = defensive_weakness(events,team_id,opp,row['attacking_patterns'],row['loss_to_shot'],row['fullback_loss_candidates'],row['set_pieces'])
             row['set_piece_intelligence'] = set_piece_intelligence(events,team_id,opp)
             row['player_intelligence'] = player_intelligence(events,team_id,opp)
+            row['spatial_network'] = spatial_network(events,team_id,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}

@@ -76,6 +76,47 @@ def playing_style(events, team_id, opponent_id):
                             lanes=lanes,evidence=evidence)
     return result
 
+def attacking_patterns(events, team_id, opponent_id):
+    """Raw-coordinate completed pass entries and same-possession pre-shot chains."""
+    result = {}
+    def valid(p):
+        return isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80)))
+    def box(p):
+        return p[0]>=102 and 18<=p[1]<=62
+    for side,tid in (('own',team_id),('opponent',opponent_id)):
+        row={'completed':0,'located':0,'third_entries':[],'box_entries':[],'shots':0,'covered_shots':0,'chains':[]}
+        chains={}
+        for e in events:
+            if (e.get('team') or {}).get('id')!=tid:
+                continue
+            kind=e['type']['name']
+            period,pos=e.get('period'),e.get('possession')
+            key=(period,pos) if type(period) is int and type(pos) is int and (e.get('possession_team') or {}).get('id')==tid else None
+            if kind=='Pass' and (e.get('pass') or {}).get('outcome') is None:
+                row['completed']+=1
+                a,b=e.get('location'),(e.get('pass') or {}).get('end_location')
+                if key is not None:
+                    chain=chains.setdefault(key,[])
+                    chain.append(e)
+                if not valid(a) or not valid(b):
+                    continue
+                row['located']+=1
+                entry={'event_id':e['id'],'minute':e.get('minute'),'start':a[:2],'end':b[:2],'lane':'left' if b[1]<80/3 else 'right' if b[1]>=160/3 else 'center'}
+                if a[0]<80<=b[0]:
+                    row['third_entries'].append(entry)
+                if not box(a) and box(b):
+                    row['box_entries'].append(entry)
+            if kind=='Shot':
+                row['shots']+=1
+                if key is None:
+                    continue
+                row['covered_shots']+=1
+                prior=chains.pop(key,[])
+                first=prior[0].get('location') if prior else None
+                row['chains'].append({'shot_id':e['id'],'minute':e.get('minute'),'goal':((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal','pass_count':len(prior),'start_zone':('defensive' if first[0]<40 else 'middle' if first[0]<80 else 'attacking') if valid(first) else None,'pass_ids':[p['id'] for p in prior[-10:]]})
+        result[side]=row
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -364,6 +405,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
                 raise ValueError('Team mismatch')
             row['own'], row['opponent'] = shot_summary(events,team_id,opp)
             row['playing_style'] = playing_style(events,team_id,opp)
+            row['attacking_patterns'] = attacking_patterns(events,team_id,opp)
             row['goal_origins'] = goal_origins(events,team_id)
             row['loss_to_shot'] = loss_to_shot(events,team_id,opp)
             row['recovery_to_shot'] = recovery_to_shot(events,team_id,opp)

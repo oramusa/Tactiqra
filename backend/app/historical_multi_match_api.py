@@ -206,6 +206,29 @@ def set_piece_summary(events, team_id, opponent_id):
         row['categories'][patterns[pattern]].append({'event_id':e['id'],'minute':e.get('minute'),'player':(e.get('player') or {}).get('name'),'goal':(shot.get('outcome') or {}).get('name')=='Goal','xg':xg if type(xg) in (int,float) and isfinite(xg) and 0<=xg<=1 else None})
     return result
 
+def flank_entries(events, team_id, opponent_id):
+    """Completed passes crossing into raw attacking third, by destination lane."""
+    result={side:{'completed':0,'located':0,'entries':[]} for side in ('own','opponent')}
+    def valid(p):
+        return isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80)))
+    for e in events:
+        if not isinstance(e,dict) or (e.get('type') or {}).get('name')!='Pass':
+            continue
+        tid=(e.get('team') or {}).get('id')
+        p=e.get('pass') or {}
+        if tid not in (team_id,opponent_id) or p.get('outcome') is not None:
+            continue
+        row=result['own' if tid==team_id else 'opponent']
+        row['completed']+=1
+        a,b=e.get('location'),p.get('end_location')
+        if not valid(a) or not valid(b) or not isinstance(e.get('id'),str):
+            continue
+        row['located']+=1
+        if a[0]<80<=b[0]:
+            lane='left' if b[1]<80/3 else 'right' if b[1]>=160/3 else 'center'
+            row['entries'].append({'event_id':e['id'],'lane':lane,'start':a[:2],'end':b[:2],'minute':e.get('minute'),'player':(e.get('player') or {}).get('name')})
+    return result
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -238,6 +261,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['loss_to_shot'] = loss_to_shot(events,217,opp)
             row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
             row['set_pieces'] = set_piece_summary(events,217,opp)
+            row['flank_entries'] = flank_entries(events,217,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'
@@ -254,6 +278,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'Loss-to-shot candidates use nearest opposing explicit loss tag within 15 seconds in the same period, including across possessions; not proof of turnover causation.',
             'Recovery-to-shot uses explicit successful Ball Recovery tags within the same possession and 15 seconds; not all turnovers or counterattacks.',
             'Set-piece shots use source play-pattern tags; penalties and own goals are not separately analyzed, and opportunity conversion rates are unavailable.',
+            'Flank entries count completed passes crossing raw x=80, grouped by destination y thirds; direction is not independently verified. Carries are excluded.',
             'Descriptive evidence, not causal tactical conclusions.']}
 
 @router.get('/historical-match-catalog')

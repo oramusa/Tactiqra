@@ -375,6 +375,7 @@ def historical_match(match_id: int):
         meta = next(m for m in read_source('matches/11/90.json') if m['match_id']==match_id)
         home,away = meta['home_team']['home_team_id'],meta['away_team']['away_team_id']
         events = read_source(f'events/{match_id}.json')
+        validate_event_identity(events)
         teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
         if not {home,away}.issubset(teams):
             raise ValueError('Team mismatch')

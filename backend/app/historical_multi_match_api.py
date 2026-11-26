@@ -37,6 +37,45 @@ def validate_event_identity(events):
             if event.get(key) is not None and not isinstance(event[key], dict):
                 raise ValueError('Invalid event field: '+key)
 
+def playing_style(events, team_id, opponent_id):
+    """Descriptive source-tag counts; no possession-time or tracking inference."""
+    result = {}
+    for side, tid in (('own', team_id), ('opponent', opponent_id)):
+        passes = completed = located = forward = long_passes = length_known = pressures = 0
+        lanes = {'left': 0, 'center': 0, 'right': 0}
+        evidence = {'forward': [], 'long': [], 'pressure': []}
+        def valid(p):
+            return isinstance(p, list) and len(p) >= 2 and all(type(v) in (int,float) and isfinite(v) and 0 <= v <= b for v,b in zip(p[:2],(120,80)))
+        for e in events:
+            if (e.get('team') or {}).get('id') != tid:
+                continue
+            kind = e['type']['name']
+            if kind == 'Pressure':
+                pressures += 1
+                evidence['pressure'].append(e['id'])
+            if kind != 'Pass':
+                continue
+            passes += 1
+            p = e.get('pass') or {}
+            completed += int(p.get('outcome') is None)
+            length = p.get('length')
+            if type(length) in (int,float) and isfinite(length) and length >= 0:
+                length_known += 1
+                if length >= 30:
+                    long_passes += 1
+                    evidence['long'].append(e['id'])
+            a,b = e.get('location'),p.get('end_location')
+            if valid(a) and valid(b):
+                located += 1
+                lanes['left' if b[1]<80/3 else 'right' if b[1]>=160/3 else 'center'] += 1
+                if b[0]-a[0] >= 5:
+                    forward += 1
+                    evidence['forward'].append(e['id'])
+        result[side] = dict(passes=passes,completed=completed,located=located,forward=forward,
+                            length_known=length_known,long_passes=long_passes,pressures=pressures,
+                            lanes=lanes,evidence=evidence)
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -324,6 +363,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             if not {team_id,opp}.issubset(teams):
                 raise ValueError('Team mismatch')
             row['own'], row['opponent'] = shot_summary(events,team_id,opp)
+            row['playing_style'] = playing_style(events,team_id,opp)
             row['goal_origins'] = goal_origins(events,team_id)
             row['loss_to_shot'] = loss_to_shot(events,team_id,opp)
             row['recovery_to_shot'] = recovery_to_shot(events,team_id,opp)

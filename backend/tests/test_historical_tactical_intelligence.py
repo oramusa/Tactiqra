@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from app.historical_multi_match_api import (
     loss_to_shot, recovery_to_shot, set_piece_summary,
-    flank_entries, fullback_loss_candidates, validate_event_identity,
+    flank_entries, fullback_loss_candidates, validate_event_identity, shot_summary, goal_origins,
 )
 
 
@@ -13,6 +13,21 @@ def event(eid, kind, team=1, second=0, **extra):
 
 
 class TacticalIntelligenceTests(unittest.TestCase):
+    def test_shot_xg_coverage_excludes_invalid_values(self):
+        rows=[event(str(i),'Shot',1,1,shot={'statsbomb_xg':x}) for i,x in enumerate([0.25, None, float('nan'), -0.1, 1.1, True])]
+        own, opponent=shot_summary(rows,1,2)
+        self.assertEqual((own['shots'],own['xg_count'],own['xg_sum']),(6,1,0.25))
+        self.assertIsNone(opponent['xg_sum'])
+
+    def test_goal_origin_invalid_clock_is_uncovered(self):
+        for clock in ['00:00:nan','00:00:inf','00:00:-1','00:61:00']:
+            goal=event('g','Shot',1,1,shot={'outcome':{'name':'Goal'}})
+            goal['timestamp']=clock
+            with self.subTest(clock=clock):
+                result=goal_origins([goal],1)
+                self.assertEqual(len(result),1)
+                self.assertEqual(result[0]['preceding_events'],[])
+
     def test_duplicate_identity_rejected(self):
         with self.assertRaises(ValueError):
             validate_event_identity([event('a','Pass'),event('a','Shot')])

@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {approveBriefing,isBriefingStale} from '../src/briefingValidation.ts';
+const phase=()=>({formation:'4-3-3',board:Array.from({length:11},()=>({x:60,y:40,name:'',task:'Press'})),rivals:Array.from({length:11},()=>({x:60,y:40,name:'',task:''})),showRivals:false,movements:[],zones:[]});
+const plans=()=>['Hücum','Savunma','Geçiş','Korner','Serbest vuruş'].map(scenario=>({version:1,scenario,opponent:'Barcelona',objective:'',notes:'',phase:'In Possession',phases:{'In Possession':phase(),'Out of Possession':phase(),Transition:phase()},tasks:[]}));
+const approve=(p,confirmed=true)=>approveBriefing(p,confirmed,'2026-01-01T00:00:00Z');
+test('approval requires confirmation',()=>assert.throws(()=>approve(plans(),false)));
+test('missing scenario rejected',()=>assert.throws(()=>approve(plans().slice(1))));
+test('duplicate scenario rejected',()=>{const p=plans();p[1].scenario=p[0].scenario;assert.throws(()=>approve(p))});
+test('unknown scenario rejected',()=>{const p=plans();p[1].scenario='Unknown';assert.throws(()=>approve(p))});
+test('different opponents rejected',()=>{const p=plans();p[1].opponent='Madrid';assert.throws(()=>approve(p))});
+test('blank opponent rejected',()=>{const p=plans();p[1].opponent=' ';assert.throws(()=>approve(p))});
+test('no player instructions rejected',()=>{const p=plans();for(const s of p)for(const f of Object.values(s.phases))for(const x of f.board)x.task=' ';assert.throws(()=>approve(p))});
+test('invalid board rejected',()=>{const p=plans();p[0].phases.Transition.board.pop();assert.throws(()=>approve(p))});
+test('snapshot is independent and stale after draft change',()=>{const p=plans(),a=approve(p);assert.equal(isBriefingStale(a,p),false);p[0].phases.Transition.board[0].task='Run';assert.equal(a.scenarios[0].phases.Transition.board[0].task,'Press');assert.equal(isBriefingStale(a,p),true)});
+test('new approval clears stale status',()=>{const p=plans();p[0].objective='New';assert.equal(isBriefingStale(approve(p),p),false);assert.equal(isBriefingStale(null,p),false)});

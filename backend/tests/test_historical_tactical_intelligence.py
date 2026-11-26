@@ -1,8 +1,9 @@
 import unittest
+import os
 from unittest.mock import patch
 from app.historical_multi_match_api import (
     loss_to_shot, recovery_to_shot, set_piece_summary,
-    flank_entries, fullback_loss_candidates, validate_event_identity, shot_summary, goal_origins,
+    flank_entries, fullback_loss_candidates, validate_event_identity, shot_summary, goal_origins, historical_match, historical_multi_match,
 )
 
 
@@ -27,6 +28,28 @@ class TacticalIntelligenceTests(unittest.TestCase):
                 result=goal_origins([goal],1)
                 self.assertEqual(len(result),1)
                 self.assertEqual(result[0]['preceding_events'],[])
+
+    def test_cross_module_same_match_both_team_perspectives(self):
+        catalog=[{'match_id':123,'match_date':'2020-10-31','match_status':'available',
+                  'home_team':{'home_team_id':1,'home_team_name':'Home'},
+                  'away_team':{'away_team_id':2,'away_team_name':'Away'}}]
+        rows=[event('h','Shot',1,10,shot={'statsbomb_xg':0.4,'outcome':{'name':'Goal'}},location=[110,40]),
+              event('a','Shot',2,12,shot={'statsbomb_xg':0.2},location=[90,30]),
+              event('b','Shot',2,14,shot={})]
+        def source(path):
+            return catalog if path=='matches/11/90.json' else rows
+        with patch.dict(os.environ,{'FOOTBALLIQ_STATSBOMB_PILOT':'3773386'}), patch('app.historical_multi_match_api.read_source',side_effect=source):
+            match=historical_match(123)
+            for team,side,other in [(1,'home','away'),(2,'away','home')]:
+                multi=historical_multi_match(limit=1,team_id=team)
+                self.assertEqual(multi['analyzed_matches'],1)
+                row=multi['matches'][0]
+                self.assertEqual(row['own'],match[side+'_stats'])
+                self.assertEqual(row['opponent'],match[other+'_stats'])
+                self.assertEqual(row['source'],match['source'])
+                shots=[s for s in match['shots'] if s['side']==side]
+                self.assertEqual(len(shots),row['own']['shots'])
+                self.assertEqual([s['event_id'] for s in shots if s['outcome']=='Goal'],row['own']['goal_event_ids'])
 
     def test_duplicate_identity_rejected(self):
         with self.assertRaises(ValueError):

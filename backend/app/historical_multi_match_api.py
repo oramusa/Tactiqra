@@ -52,6 +52,41 @@ def shot_summary(events, team_id, opponent_id):
         row['xg_sum'] = round(row['xg_sum'], 6) if row['xg_count'] else None
     return sides[team_id], sides[opponent_id]
 
+def goal_origins(events, team_id):
+    """Same-possession temporal associations, not causal attribution."""
+    def seconds(e):
+        try:
+            h,m,s = e['timestamp'].split(':')
+            return int(h)*3600 + int(m)*60 + float(s)
+        except (KeyError, ValueError, TypeError, AttributeError):
+            return None
+    goals = []
+    for i,e in enumerate(events):
+        if not isinstance(e,dict) or (e.get('type') or {}).get('name') != 'Shot' or ((e.get('shot') or {}).get('outcome') or {}).get('name') != 'Goal':
+            continue
+        scoring = (e.get('team') or {}).get('id')
+        t = seconds(e)
+        possession = e.get('possession')
+        period = e.get('period')
+        evidence = []
+        covered = t is not None and type(possession) is int and type(period) is int
+        if covered:
+            for p in reversed(events[:i]):
+                if not isinstance(p,dict) or p.get('period') != period or p.get('possession') != possession:
+                    break
+                pt = seconds(p)
+                if pt is None or pt > t:
+                    covered = False
+                    break
+                if t-pt > 15:
+                    break
+                kind = (p.get('type') or {}).get('name')
+                other = (p.get('team') or {}).get('id')
+                if kind in ('Error','Dispossessed','Miscontrol') and type(other) is int and other != scoring and isinstance(p.get('id'),str):
+                    evidence.append({'type':kind,'event_id':p['id'],'player':(p.get('player') or {}).get('name'),'seconds_before_goal':round(t-pt,3),'location':p.get('location')})
+        goals.append({'goal_event_id':e.get('id'),'side':'own' if scoring==team_id else 'opponent','minute':e.get('minute'),'player':(e.get('player') or {}).get('name'),'play_pattern':(e.get('play_pattern') or {}).get('name'),'window_status':'available' if covered else 'incomplete','preceding_events':list(reversed(evidence)) if covered else []})
+    return goals
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -80,6 +115,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             if not {217,opp}.issubset(teams):
                 raise ValueError('Team mismatch')
             row['own'], row['opponent'] = shot_summary(events,217,opp)
+            row['goal_origins'] = goal_origins(events,217)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'
@@ -92,4 +128,5 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'limitations':['Historical available matches only; not current form.',
             'Shot goals may exclude own goals. xG sums cover only shots with source xG.',
             'Box locations use raw StatsBomb shot coordinates; direction not independently verified.',
+            'Goal origins use a 15-second same-possession window; absence of a tag does not establish absence of an error.',
             'Descriptive evidence, not causal tactical conclusions.']}

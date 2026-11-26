@@ -24,6 +24,7 @@ def read_source(path):
 def validate_event_identity(events):
     """Reject ambiguous event identities before aggregating a match."""
     seen = set()
+    last_index = None
     for event in events:
         if not isinstance(event, dict):
             raise ValueError('Invalid event record')
@@ -31,6 +32,11 @@ def validate_event_identity(events):
         if not isinstance(eid, str) or not eid.strip() or eid in seen:
             raise ValueError('Missing or duplicate event identity')
         seen.add(eid)
+        index = event.get('index')
+        if index is not None:
+            if type(index) is not int or index < 0 or (last_index is not None and index <= last_index):
+                raise ValueError('Invalid event ordering')
+            last_index = index
         if not isinstance(event.get('type'), dict) or not isinstance(event['type'].get('name'), str):
             raise ValueError('Invalid event type')
         for key in ('team','player','position','shot','pass','ball_recovery','play_pattern','possession_team'):
@@ -529,7 +535,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             events = read_source(f'events/{mid}.json')
             validate_event_identity(events)
             teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
-            if not {team_id,opp}.issubset(teams):
+            if teams - {None,team_id,opp} or not {team_id,opp}.issubset(teams):
                 raise ValueError('Team mismatch')
             row['own'], row['opponent'] = shot_summary(events,team_id,opp)
             row['playing_style'] = playing_style(events,team_id,opp)
@@ -595,7 +601,7 @@ def historical_match(match_id: int):
         events = read_source(f'events/{match_id}.json')
         validate_event_identity(events)
         teams = {(e.get('team') or {}).get('id') for e in events if isinstance(e,dict)}
-        if not {home,away}.issubset(teams):
+        if teams - {None,home,away} or not {home,away}.issubset(teams):
             raise ValueError('Team mismatch')
         a,b = shot_summary(events,home,away)
         shots = []

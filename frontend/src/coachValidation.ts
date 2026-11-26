@@ -1,0 +1,10 @@
+const formations={'4-3-3':[1,4,3,3],'4-2-3-1':[1,4,2,3,1],'3-5-2':[1,3,5,2]} as const;
+const phaseNames=['In Possession','Out of Possession','Transition'] as const;
+export function validateCoachPlan(v:any,scenario:string){
+ const num=(n:any,min:number,max:number)=>typeof n==='number'&&Number.isFinite(n)&&n>=min&&n<=max;
+ const str=(s:any)=>typeof s==='string'&&s.length<=20000;
+ const player=(p:any)=>p&&num(p.x,4,116)&&num(p.y,4,76)&&str(p.name)&&str(p.task);
+ const validPhase=(p:any)=>p&&Object.prototype.hasOwnProperty.call(formations,p.formation)&&Array.isArray(p.board)&&p.board.length===11&&p.board.every(player)&&Array.isArray(p.rivals)&&p.rivals.length===11&&p.rivals.every(player)&&typeof p.showRivals==='boolean'&&Array.isArray(p.movements)&&p.movements.length<=1000&&p.movements.every((m:any)=>m&&Number.isInteger(m.player)&&num(m.player,0,10)&&['Run','Pass','Press'].includes(m.kind)&&num(m.x,4,116)&&num(m.y,4,76))&&Array.isArray(p.zones)&&p.zones.length<=1000&&p.zones.every((z:any)=>z&&['Press','Defense','Attack','Space'].includes(z.kind)&&num(z.x,0,120)&&num(z.y,0,80)&&num(z.w,5,120-z.x)&&num(z.h,5,80-z.y));
+ if(!v||v.version!==1||v.scenario!==scenario||!str(v.opponent)||!str(v.objective)||!str(v.notes)||!phaseNames.includes(v.phase)||!v.phases||!phaseNames.every(n=>validPhase(v.phases[n]))||!Array.isArray(v.tasks)||v.tasks.length>1000||!v.tasks.every((t:any)=>t&&Number.isSafeInteger(t.id)&&t.id>0&&str(t.label)&&typeof t.done==='boolean')||new Set(v.tasks.map((t:any)=>t.id)).size!==v.tasks.length)throw new Error('Geçersiz plan veya farklı senaryo.');
+ return v;
+}

@@ -229,6 +229,29 @@ def flank_entries(events, team_id, opponent_id):
             row['entries'].append({'event_id':e['id'],'lane':lane,'start':a[:2],'end':b[:2],'minute':e.get('minute'),'player':(e.get('player') or {}).get('name')})
     return result
 
+def fullback_loss_candidates(events, team_id, opponent_id):
+    """Explicit fullback-position loss tags preceding opposing shots; not tracking."""
+    positions={'Left Back','Right Back','Left Wing Back','Right Wing Back'}
+    by_id={e.get('id'):e for e in events if isinstance(e,dict) and isinstance(e.get('id'),str)}
+    windows=loss_to_shot(events,team_id,opponent_id)
+    result={}
+    for side,window in windows.items():
+        candidates=[]
+        known=0
+        for c in window['candidates']:
+            event=by_id.get(c['loss_event_id'],{})
+            position=(event.get('position') or {}).get('name')
+            if isinstance(position,str) and position:
+                known+=1
+            if position not in positions:
+                continue
+            loc=event.get('location')
+            valid=isinstance(loc,list) and len(loc)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(loc[:2],(120,80)))
+            candidates.append({**c,'position':position,'loss_location':loc[:2] if valid else None,
+                               'advanced_raw':loc[0]>=60 if valid else None})
+        result[side]={'matched_shots':len(window['candidates']),'position_known':known,'candidates':candidates}
+    return result
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -262,6 +285,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
             row['set_pieces'] = set_piece_summary(events,217,opp)
             row['flank_entries'] = flank_entries(events,217,opp)
+            row['fullback_loss_candidates'] = fullback_loss_candidates(events,217,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'

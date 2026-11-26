@@ -153,3 +153,6 @@ app.include_router(possession_sequence_router)
 
 from .transition_candidate_api import router as transition_candidate_router
 app.include_router(transition_candidate_router)
+
+from .historical_multi_match_api import router as historical_multi_match_router
+app.include_router(historical_multi_match_router)

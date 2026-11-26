@@ -1,7 +1,7 @@
 import unittest
 from app.historical_multi_match_api import (
     loss_to_shot, recovery_to_shot, set_piece_summary,
-    flank_entries, fullback_loss_candidates,
+    flank_entries, fullback_loss_candidates, validate_event_identity,
 )
 
 
@@ -12,6 +12,23 @@ def event(eid, kind, team=1, second=0, **extra):
 
 
 class TacticalIntelligenceTests(unittest.TestCase):
+    def test_duplicate_identity_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_event_identity([event('a','Pass'),event('a','Shot')])
+
+    def test_invalid_identity_and_record_rejected(self):
+        for row in [None, {}, event('','Pass'), event(' ','Pass')]:
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                validate_event_identity([row])
+
+    def test_invalid_nested_fields_rejected(self):
+        row=event('a','Shot',shot='invalid')
+        with self.assertRaises(ValueError):
+            validate_event_identity([row])
+
+    def test_optional_fields_can_be_missing(self):
+        validate_event_identity([event('a','Pass'),event('b','Shot',shot=None)])
+
     def test_loss_nearest_boundary_and_direction(self):
         rows = [event('a','Error',2,0), event('b','Miscontrol',2,5),
                 event('s','Shot',1,20)]

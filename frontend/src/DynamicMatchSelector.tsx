@@ -1,3 +1,4 @@
+import type {TacticalEvidence} from './evidence';
 import React,{useEffect,useState} from 'react';
 type Fixture={match_id:number;date:string;home:string;away:string};
 type Side={shots:number;goals_from_shots:number;xg_sum:number|null;xg_count:number;box_shots:number;located_shots:number};
@@ -94,7 +95,7 @@ function PlayerPerformance({report}:{report:Report}){
  const a=all.find(p=>p.key===left),b=all.find(p=>p.key===right);
  return <section><h3>Player Performance Intelligence</h3><p>Kaynak olay sayıları; dakika başına normalizasyon, tracking ve oyuncu puanı değildir. Kayıp etiketi yalnızca Dispossessed/Miscontrol.</p><div className="filters"><label>Takım <select value={side} onChange={e=>setSide(e.target.value==='home'?'home':'away')}><option value="home">{report.home}</option><option value="away">{report.away}</option></select></label><label>Sırala <select value={sort} onChange={e=>setSort(e.target.value as typeof sort)}>{['passes','shots','goals','recoveries','pressures'].map(k=><option key={k}>{k}</option>)}</select></label></div><div style={{overflowX:'auto'}}><table><thead><tr><th>Oyuncu</th>{labels.map(l=><th key={l}>{l}</th>)}</tr></thead><tbody>{rows.map(p=><tr key={p.id}><td>{p.name??p.id}</td>{metrics(p).map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody></table></div><h3>Player Comparison</h3><div className="filters">{[[left,setLeft],[right,setRight]].map(([v,set],i)=><label key={i}>Oyuncu {i+1} <select value={v as string} onChange={e=>(set as (v:string)=>void)(e.target.value)}><option value="">Seçiniz</option>{all.map(p=><option key={p.key} value={p.key}>{p.name??p.id} · {p.team}</option>)}</select></label>)}</div>{a&&b&&<table><thead><tr><th>Metrik</th><th>{a.name}</th><th>{b.name}</th></tr></thead><tbody>{labels.map((l,i)=><tr key={l}><td>{l}</td><td>{metrics(a)[i]}</td><td>{metrics(b)[i]}</td></tr>)}</tbody></table>}</section>
 }
-function AutomatedMatchReport({report,onCoachEvidence}:{report:Report;onCoachEvidence?:(e:string)=>void}){
+function AutomatedMatchReport({report,onCoachEvidence}:{report:Report;onCoachEvidence?:(e:TacticalEvidence)=>void}){
  const a=report.home_stats,b=report.away_stats;
  const lines=[report.home+' – '+report.away+' | '+report.date+' | Match #'+report.match_id,
  'Şutlar: '+a.shots+' / '+b.shots,
@@ -106,9 +107,9 @@ function AutomatedMatchReport({report,onCoachEvidence}:{report:Report;onCoachEvi
  'Sınırlamalar: '+report.limitations.join(' '),
  'Kaynak: '+report.source];
  const download=()=>{const url=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='tactiqra-match-'+report.match_id+'.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
- return <section><h3>Automated Match Report</h3><p>Seçilen maçtan deterministik özet; taktik nedensellik veya gelecek performans tahmini değildir.</p>{lines.map((l,i)=><p key={i}>{l}</p>)}<button type="button" onClick={download}>Raporu indir (.txt)</button> {onCoachEvidence&&<button type="button" onClick={()=>onCoachEvidence(lines.join(' · '))}>Maç kanıtını CoachIQ'ya aktar</button>}</section>
+ return <section><h3>Automated Match Report</h3><p>Seçilen maçtan deterministik özet; taktik nedensellik veya gelecek performans tahmini değildir.</p>{lines.map((l,i)=><p key={i}>{l}</p>)}<button type="button" onClick={download}>Raporu indir (.txt)</button> {onCoachEvidence&&<button type="button" onClick={()=>onCoachEvidence({version:1,module:'MatchIQ',provider:'StatsBomb',scope:'Historical LaLiga 2020/21',title:report.home+' – '+report.away+' | '+report.date,observation:lines.slice(1,-2).join(' · '),coverage:{matched:1,eligible:1,analyzed:1},matches:[{matchId:report.match_id,source:report.source,eventIds:[]}],limitations:[...report.limitations,'Aggregate match summary; no individual event IDs attached.']})}>Maç kanıtını CoachIQ'ya aktar</button>}</section>
 }
-export default function DynamicMatchSelector({onCoachEvidence}:{onCoachEvidence?:(e:string)=>void}={}){
+export default function DynamicMatchSelector({onCoachEvidence}:{onCoachEvidence?:(e:TacticalEvidence)=>void}={}){
  const [view,setView]=useState('Overview');
  const [matches,setMatches]=useState<Fixture[]>([]),[id,setId]=useState(''),[report,setReport]=useState<Report|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false),[catalogLoading,setCatalogLoading]=useState(true);
  useEffect(()=>{const c=new AbortController();get('/api/v1/opponentiq/historical-match-catalog',c.signal).then(d=>{if(d.status!=='ready'||!Array.isArray(d.matches))throw new Error('Maç kataloğu hazır değil');setMatches(d.matches)}).catch(e=>{if(!c.signal.aborted)setError(e.message)}).finally(()=>{if(!c.signal.aborted)setCatalogLoading(false)});return()=>c.abort()},[]);

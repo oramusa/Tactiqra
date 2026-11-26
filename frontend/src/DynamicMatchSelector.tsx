@@ -34,21 +34,23 @@ function SmoothDensity({cells,max}:{cells:number[];max:number}){
  },[key,max]);
  return <canvas ref={ref} width={240} height={160} style={{display:'block',width:'120px',height:'80px'}} aria-hidden="true"/>;
 }
-function EventHeatmap({name,rows,max}:{name:string;rows:HeatRow[];max:number}){
+function EventHeatmap({name,rows,max,auto}:{name:string;rows:HeatRow[];max:number;auto:boolean}){
  const [player,setPlayer]=useState('all');
  const chosen=player==='all'?rows:rows.filter(r=>String(r.player_id)===player);
  const cells=Array.from({length:96},(_,i)=>chosen.reduce((n,r)=>n+(r.cells[i]??0),0));
+ const scale=auto?Math.max(1,...cells):max;
  const events=chosen.reduce((n,r)=>n+r.events,0),located=chosen.reduce((n,r)=>n+r.located,0);
  return <div style={{minWidth:0}}><h3>{name}</h3><label>Oyuncu <select value={player} onChange={e=>setPlayer(e.target.value)}><option value="all">Tüm takım</option>{rows.filter(r=>r.player_id!==null).map(r=><option key={r.player_id} value={String(r.player_id)}>{r.player}</option>)}</select></label><p>{located}/{events} konumlu olay</p>
  <svg viewBox="0 0 120 80" width="100%" role="img" aria-label={name+' olay yoğunluğu haritası'} style={{background:'#153c30',borderRadius:6}}>
- <foreignObject x="0" y="0" width="120" height="80"><SmoothDensity cells={cells} max={max}/></foreignObject>
- <g fill="none" stroke="#c6ded0" strokeWidth=".35" pointerEvents="none"><rect x=".5" y=".5" width="119" height="79"/><path d="M60 0V80"/><circle cx="60" cy="40" r="9.15"/><rect x=".5" y="18" width="17.5" height="44"/><rect x="102" y="18" width="17.5" height="44"/><rect x=".5" y="30" width="5.5" height="20"/><rect x="114" y="30" width="5.5" height="20"/></g></svg><div style={{height:8,borderRadius:4,background:"linear-gradient(90deg,#153c30,#49a52a,#e7db18,#f88a12,#e52222)"}}/><p>0 – {max} olay/hücre · En yoğun kaynak hücre: {Math.max(...cells)} olay</p></div>
+ <foreignObject x="0" y="0" width="120" height="80"><SmoothDensity cells={cells} max={scale}/></foreignObject>
+ <g fill="none" stroke="#c6ded0" strokeWidth=".35" pointerEvents="none"><rect x=".5" y=".5" width="119" height="79"/><path d="M60 0V80"/><circle cx="60" cy="40" r="9.15"/><rect x=".5" y="18" width="17.5" height="44"/><rect x="102" y="18" width="17.5" height="44"/><rect x=".5" y="30" width="5.5" height="20"/><rect x="114" y="30" width="5.5" height="20"/></g></svg><div style={{height:8,borderRadius:4,background:"linear-gradient(90deg,#153c30,#49a52a,#e7db18,#f88a12,#e52222)"}}/><p>{auto?'Auto':'Common'} · 0 – {scale} olay/hücre · En yoğun kaynak hücre: {Math.max(...cells)} olay</p></div>
 }
 function MatchHeatmaps({report}:{report:Report}){
+ const [auto,setAuto]=useState(true);
  const h=report.heatmap;
  if(!h||!Array.isArray(h.home)||!Array.isArray(h.away))return <p>Isı haritası verisi henüz mevcut değil.</p>;
  const max=Math.max(1,...[h.home,h.away].flatMap(rows=>Array.from({length:96},(_,i)=>rows.reduce((n,r)=>n+(r.cells[i]??0),0))));
- return <><h3>Dynamic Player & Team Heatmaps</h3><p>12 × 8 kaynak hücreden yumuşatılmış olay yoğunluğu; ortak ölçek (0–{max} olay/hücre). Oyuncu filtresi ölçeği değiştirmez. Ham olay koordinatları; tracking veya sahada geçirilen süre değildir.</p><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,280px),1fr))',gap:16}}><EventHeatmap key={report.match_id+'home'} name={report.home} rows={h.home} max={max}/><EventHeatmap key={report.match_id+'away'} name={report.away} rows={h.away} max={max}/></div></>
+ return <><h3>Dynamic Player & Team Heatmaps</h3><p>12 × 8 kaynak hücreden yumuşatılmış olay yoğunluğu. Ham olay koordinatları; tracking veya sahada geçirilen süre değildir.</p><label>Renk ölçeği <select value={auto?'auto':'common'} onChange={e=>setAuto(e.target.value==='auto')}><option value="auto">Auto Scale — bağımsız</option><option value="common">Common Scale — ortak</option></select></label><p>{auto?'Renkler her seçimin kendi maksimumuna göre hesaplanır; renkler doğrudan karşılaştırılamaz.':'İki harita aynı takım bazlı maksimumu kullanır.'}</p><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,280px),1fr))',gap:16}}><EventHeatmap auto={auto} key={report.match_id+'home'} name={report.home} rows={h.home} max={max}/><EventHeatmap auto={auto} key={report.match_id+'away'} name={report.away} rows={h.away} max={max}/></div></>
 }
 function PassPitch({name,network}:{name:string;network:PassNetwork}){
  const [threshold,setThreshold]=useState(5),[selected,setSelected]=useState('');

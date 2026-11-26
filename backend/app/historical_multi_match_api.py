@@ -191,7 +191,40 @@ def historical_match(match_id: int):
                 col = min(11,int(loc[0]//10))
                 line = min(7,int(loc[1]//10))
                 row['cells'][line*12+col] += 1
+        networks = {}
+        for tid,side in ((home,'home'),(away,'away')):
+            nodes,links = {},{}
+            attempts,completed,mapped = 0,0,0
+            for e in events:
+                if not isinstance(e,dict) or (e.get('team') or {}).get('id')!=tid or (e.get('type') or {}).get('name')!='Pass':
+                    continue
+                attempts += 1
+                p = e.get('pass') or {}
+                if p.get('outcome') is not None:
+                    continue
+                completed += 1
+                sender,receiver = e.get('player') or {},p.get('recipient') or {}
+                sid,rid = sender.get('id'),receiver.get('id')
+                if type(sid) is not int or type(rid) is not int or sid==rid:
+                    continue
+                mapped += 1
+                link = links.setdefault((sid,rid),{'from':sid,'to':rid,'count':0,'event_ids':[]})
+                link['count'] += 1
+                link['event_ids'].append(e['id'])
+                for player in (sender,receiver):
+                    nodes.setdefault(player['id'],{'id':player['id'],'name':player.get('name'),'x':0.0,'y':0.0,'located':0})
+                loc=e.get('location')
+                if isinstance(loc,list) and len(loc)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=bound for v,bound in zip(loc[:2],(120,80))):
+                    n=nodes[sid]
+                    n['x']+=loc[0]
+                    n['y']+=loc[1]
+                    n['located']+=1
+            for n in nodes.values():
+                n['x']=round(n['x']/n['located'],3) if n['located'] else None
+                n['y']=round(n['y']/n['located'],3) if n['located'] else None
+            networks[side]={'attempts':attempts,'completed':completed,'mapped':mapped,'nodes':list(nodes.values()),'links':sorted(links.values(),key=lambda l:-l['count'])}
         return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,
+                'pass_networks':networks,
                 'heatmap':{side:list(rows.values()) for side,rows in heatmap.items()},
                 'source':BASE+f'events/{match_id}.json',
                 'limitations':['Historical event data; shot goals may exclude own goals.']}

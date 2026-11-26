@@ -183,6 +183,29 @@ def recovery_to_shot(events, team_id, opponent_id):
                 row['candidates'].append(candidate)
     return result
 
+def set_piece_summary(events, team_id, opponent_id):
+    """Shot play-pattern tags, not counts of set-piece opportunities."""
+    patterns={'From Corner':'corner','From Free Kick':'free_kick','From Throw In':'throw_in'}
+    result={side:{'shots':0,'classified':0,'categories':{k:[] for k in patterns.values()}} for side in ('own','opponent')}
+    for e in events:
+        if not isinstance(e,dict) or (e.get('type') or {}).get('name')!='Shot':
+            continue
+        tid=(e.get('team') or {}).get('id')
+        if tid not in (team_id,opponent_id):
+            continue
+        row=result['own' if tid==team_id else 'opponent']
+        row['shots']+=1
+        pattern=(e.get('play_pattern') or {}).get('name')
+        if not isinstance(pattern,str) or not pattern:
+            continue
+        row['classified']+=1
+        if pattern not in patterns:
+            continue
+        shot=e.get('shot') or {}
+        xg=shot.get('statsbomb_xg')
+        row['categories'][patterns[pattern]].append({'event_id':e['id'],'minute':e.get('minute'),'player':(e.get('player') or {}).get('name'),'goal':(shot.get('outcome') or {}).get('name')=='Goal','xg':xg if type(xg) in (int,float) and isfinite(xg) and 0<=xg<=1 else None})
+    return result
+
 @router.get('/historical-multi-match')
 def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
     if os.getenv('FOOTBALLIQ_STATSBOMB_PILOT') != '3773386':
@@ -214,6 +237,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             row['goal_origins'] = goal_origins(events,217)
             row['loss_to_shot'] = loss_to_shot(events,217,opp)
             row['recovery_to_shot'] = recovery_to_shot(events,217,opp)
+            row['set_pieces'] = set_piece_summary(events,217,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             row['status'] = 'unavailable'
@@ -229,6 +253,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5)):
             'Goal origins use a 15-second same-possession window; absence of a tag does not establish absence of an error.',
             'Loss-to-shot candidates use nearest opposing explicit loss tag within 15 seconds in the same period, including across possessions; not proof of turnover causation.',
             'Recovery-to-shot uses explicit successful Ball Recovery tags within the same possession and 15 seconds; not all turnovers or counterattacks.',
+            'Set-piece shots use source play-pattern tags; penalties and own goals are not separately analyzed, and opportunity conversion rates are unavailable.',
             'Descriptive evidence, not causal tactical conclusions.']}
 
 @router.get('/historical-match-catalog')

@@ -16,6 +16,24 @@ function ShotPitch({name,shots}:{name:string;shots:Shot[]}){
  <label>Şut kanıtı <select value={selected??''} onChange={e=>setSelected(e.target.value||null)}><option value="">Şut seçiniz</option>{shots.map(s=><option key={s.event_id} value={s.event_id}>{s.minute??'—'}′ · {s.player??'—'} · {s.outcome??'—'}</option>)}</select></label>
  {active&&<p style={{overflowWrap:'anywhere'}}>{active.player??'—'} · xG {active.xg?.toFixed(3)??'—'}<br/>Event ID: {active.event_id}</p>}</div>
 }
+function SmoothDensity({cells,max}:{cells:number[];max:number}){
+ const ref=React.useRef<HTMLCanvasElement>(null);
+ const key=cells.join(',');
+ useEffect(()=>{
+  const canvas=ref.current,ctx=canvas?.getContext('2d');if(!canvas||!ctx)return;
+  const w=240,h=160,img=ctx.createImageData(w,h);
+  const palette=[[21,60,48],[44,130,65],[225,220,28],[249,130,15],[230,34,34]];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+   const gx=(x+.5)/2,gy=(y+.5)/2;let sum=0,weight=0;
+   for(let j=0;j<96;j++){const dx=gx-(j%12*10+5),dy=gy-(Math.floor(j/12)*10+5),v=Math.exp(-(dx*dx+dy*dy)/65);sum+=cells[j]*v;weight+=v}
+   const t=Math.min(1,Math.max(0,sum/Math.max(weight,1e-9)/Math.max(1,max))),p=t*4,k=Math.min(3,Math.floor(p)),f=p-k,i=(y*w+x)*4;
+   for(let c=0;c<3;c++)img.data[i+c]=Math.round(palette[k][c]*(1-f)+palette[k+1][c]*f);
+   img.data[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+ },[key,max]);
+ return <canvas ref={ref} width={240} height={160} style={{display:'block',width:'120px',height:'80px'}} aria-hidden="true"/>;
+}
 function EventHeatmap({name,rows,max}:{name:string;rows:HeatRow[];max:number}){
  const [player,setPlayer]=useState('all');
  const chosen=player==='all'?rows:rows.filter(r=>String(r.player_id)===player);
@@ -23,7 +41,7 @@ function EventHeatmap({name,rows,max}:{name:string;rows:HeatRow[];max:number}){
  const events=chosen.reduce((n,r)=>n+r.events,0),located=chosen.reduce((n,r)=>n+r.located,0);
  return <div style={{minWidth:0}}><h3>{name}</h3><label>Oyuncu <select value={player} onChange={e=>setPlayer(e.target.value)}><option value="all">Tüm takım</option>{rows.filter(r=>r.player_id!==null).map(r=><option key={r.player_id} value={String(r.player_id)}>{r.player}</option>)}</select></label><p>{located}/{events} konumlu olay</p>
  <svg viewBox="0 0 120 80" width="100%" role="img" aria-label={name+' olay yoğunluğu haritası'} style={{background:'#153c30',borderRadius:6}}>
- {Array.from({length:2400},(_,i)=>{const x=(i%60)*2+1,y=Math.floor(i/60)*2+1;let sum=0,weight=0;for(let j=0;j<96;j++){const dx=x-(j%12*10+5),dy=y-(Math.floor(j/12)*10+5),w=Math.exp(-(dx*dx+dy*dy)/65);sum+=cells[j]*w;weight+=w}const v=Math.min(1,sum/Math.max(weight,1e-9)/Math.max(1,max));const hue=120*(1-Math.sqrt(v));return <rect key={i} x={x-1} y={y-1} width="2.05" height="2.05" fill={`hsl(${hue},95%,48%)`} fillOpacity={Math.min(.95,v*1.5)}/>})}
+ <foreignObject x="0" y="0" width="120" height="80"><SmoothDensity cells={cells} max={max}/></foreignObject>
  <g fill="none" stroke="#c6ded0" strokeWidth=".35" pointerEvents="none"><rect x=".5" y=".5" width="119" height="79"/><path d="M60 0V80"/><circle cx="60" cy="40" r="9.15"/><rect x=".5" y="18" width="17.5" height="44"/><rect x="102" y="18" width="17.5" height="44"/><rect x=".5" y="30" width="5.5" height="20"/><rect x="114" y="30" width="5.5" height="20"/></g></svg><div style={{height:8,borderRadius:4,background:"linear-gradient(90deg,#153c30,#49a52a,#e7db18,#f88a12,#e52222)"}}/><p>0 – {max} olay/hücre · En yoğun kaynak hücre: {Math.max(...cells)} olay</p></div>
 }
 function MatchHeatmaps({report}:{report:Report}){

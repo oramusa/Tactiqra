@@ -172,7 +172,27 @@ def historical_match(match_id: int):
                           'location':loc[:2] if valid else None,'xg':xg if type(xg) in (int,float) and isfinite(xg) and 0<=xg<=1 else None,
                           'player':(e.get('player') or {}).get('name'),'minute':e.get('minute'),
                           'outcome':(shot.get('outcome') or {}).get('name')})
+        heatmap = {'home':{},'away':{}}
+        for e in events:
+            if not isinstance(e,dict):
+                continue
+            tid = (e.get('team') or {}).get('id')
+            if tid not in (home,away):
+                continue
+            side = 'home' if tid==home else 'away'
+            player = e.get('player') or {}
+            pid = player.get('id')
+            key = str(pid) if type(pid) is int else 'unknown'
+            row = heatmap[side].setdefault(key,{'player_id':pid if type(pid) is int else None,'player':player.get('name') or 'Unknown','events':0,'located':0,'cells':[0]*96})
+            row['events'] += 1
+            loc = e.get('location')
+            if isinstance(loc,list) and len(loc)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(loc[:2],(120,80))):
+                row['located'] += 1
+                col = min(11,int(loc[0]//10))
+                line = min(7,int(loc[1]//10))
+                row['cells'][line*12+col] += 1
         return {**match,'status':'provisional','home_stats':a,'away_stats':b,'shots':shots,
+                'heatmap':{side:list(rows.values()) for side,rows in heatmap.items()},
                 'source':BASE+f'events/{match_id}.json',
                 'limitations':['Historical event data; shot goals may exclude own goals.']}
     except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:

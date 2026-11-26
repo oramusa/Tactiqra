@@ -147,6 +147,41 @@ def transition_intelligence(events, recoveries, losses):
             result[side][kind]={'covered':w['covered'],'shots':w['shots'],'candidates':candidates,'thresholds':{str(t):{'shots':sum(c['seconds']<=t for c in candidates),'goals':sum(c['seconds']<=t and c['goal'] for c in candidates)} for t in (5,10,15)}}
     return result
 
+def set_piece_intelligence(events, team_id, opponent_id):
+    """Explicit restart passes and subsequent same-possession tagged shots."""
+    kinds={'Corner':'corner','Free Kick':'free_kick','Throw-in':'throw_in'}
+    patterns={'From Corner':'corner','From Free Kick':'free_kick','From Throw In':'throw_in'}
+    result={}
+    for side,tid in (('own',team_id),('opponent',opponent_id)):
+        rows={k:{'restarts':[],'shots':[],'matched_shots':0} for k in kinds.values()}
+        latest={}
+        def loc(p):
+            return p[:2] if isinstance(p,list) and len(p)>=2 and all(type(v) in (int,float) and isfinite(v) and 0<=v<=b for v,b in zip(p[:2],(120,80))) else None
+        for e in events:
+            if (e.get('team') or {}).get('id')!=tid:
+                continue
+            period,pos=e.get('period'),e.get('possession')
+            key=(period,pos) if type(period) is int and type(pos) is int and (e.get('possession_team') or {}).get('id')==tid else None
+            kind=e['type']['name']
+            if kind=='Pass':
+                p=e.get('pass') or {}
+                cat=kinds.get((p.get('type') or {}).get('name'))
+                if cat:
+                    item={'id':e['id'],'minute':e.get('minute'),'start':loc(e.get('location')),'end':loc(p.get('end_location')),'completed':p.get('outcome') is None}
+                    rows[cat]['restarts'].append(item)
+                    if key is not None:
+                        latest[key]=(cat,item['id'])
+            elif kind=='Shot':
+                cat=patterns.get((e.get('play_pattern') or {}).get('name'))
+                if not cat:
+                    continue
+                match=latest.get(key)
+                restart=match[1] if match and match[0]==cat else None
+                rows[cat]['matched_shots']+=int(restart is not None)
+                rows[cat]['shots'].append({'id':e['id'],'minute':e.get('minute'),'location':loc(e.get('location')),'goal':((e.get('shot') or {}).get('outcome') or {}).get('name')=='Goal','restart_id':restart})
+        result[side]=rows
+    return result
+
 def shot_summary(events, team_id, opponent_id):
     sides = {tid: {'shots': 0, 'goals_from_shots': 0, 'xg_sum': 0.0,
                    'xg_count': 0, 'box_shots': 0, 'located_shots': 0,
@@ -444,6 +479,7 @@ def historical_multi_match(limit: int = Query(3, ge=1, le=5), team_id: int = Que
             row['fullback_loss_candidates'] = fullback_loss_candidates(events,team_id,opp,loss_windows=row['loss_to_shot'])
             row['transition_intelligence'] = transition_intelligence(events,row['recovery_to_shot'],row['loss_to_shot'])
             row['defensive_weakness'] = defensive_weakness(events,team_id,opp,row['attacking_patterns'],row['loss_to_shot'],row['fullback_loss_candidates'],row['set_pieces'])
+            row['set_piece_intelligence'] = set_piece_intelligence(events,team_id,opp)
             row['status'] = 'provisional'
         except (OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
             row = {k:v for k,v in row.items() if k in ('match_id','date','home','away','source')}

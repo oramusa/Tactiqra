@@ -2,11 +2,35 @@
 import hashlib
 import json
 import os
+from datetime import date
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/v1/opponentiq", tags=["event-coverage"])
 MAX_BYTES = 30_000_000
+
+def identity_metadata(entry):
+    """Explicit cross-provider mapping metadata, not an independent identity certificate."""
+    identity = entry.get("identity")
+    if not isinstance(identity, dict):
+        return None
+    fields = ("event_match_id", "metadata_source", "match_date", "competition")
+    if any(not isinstance(identity.get(k), str) or not identity[k].strip() or len(identity[k]) > 500 for k in fields):
+        return None
+    if identity["competition"] != "PD":
+        return None
+    try:
+        if date.fromisoformat(identity["match_date"]).isoformat() != identity["match_date"]:
+            return None
+    except ValueError:
+        return None
+    for k in ("home_team_id", "away_team_id", "home_goals", "away_goals"):
+        if type(identity.get(k)) is not int or identity[k] < (1 if k.endswith("_id") else 0):
+            return None
+    if identity["home_team_id"] == identity["away_team_id"]:
+        return None
+    return {k: identity[k] for k in (*fields, "home_team_id", "away_team_id", "home_goals", "away_goals")}
+
 
 def audit_manifest(match_ids: list[int], manifest_path: Path):
     """Manifest entries require provider match id, source id, relative file and SHA-256."""
@@ -26,6 +50,13 @@ def audit_manifest(match_ids: list[int], manifest_path: Path):
         if type(mid) is not int or mid <= 0:
             continue
         entries.setdefault(mid, []).append(entry)
+    event_keys = {}
+    for group in entries.values():
+        for entry in group:
+            meta = identity_metadata(entry)
+            if meta and isinstance(entry.get('event_source'), str):
+                key = (entry['event_source'], meta['event_match_id'])
+                event_keys[key] = event_keys.get(key, 0) + 1
     base = manifest_path.resolve().parent
     results = []
     for mid in dict.fromkeys(match_ids):
@@ -54,7 +85,12 @@ def audit_manifest(match_ids: list[int], manifest_path: Path):
                         status, reason = "verified_file", "File integrity verified; tactical correctness not validated"
                     except (ValueError, OSError, UnicodeError):
                         status, reason = "invalid", "Invalid event JSON"
-        results.append({"providerMatchId": mid, "status": status, "reason": reason, "eventSource": source})
+        meta = identity_metadata(matches[0]) if len(matches) == 1 else None
+        identity_status = "metadata_missing"
+        if meta:
+            identity_status = "ambiguous" if event_keys.get((source, meta["event_match_id"]), 0) != 1 else "metadata_available"
+        results.append({"providerMatchId": mid, "status": status, "reason": reason, "eventSource": source,
+                        "identityStatus": identity_status, "identity": meta if identity_status == "metadata_available" else None})
     verified = sum(x["status"] == "verified_file" for x in results)
     return {"requested": len(results), "verifiedFiles": verified, "missingOrInvalid": len(results)-verified,
             "matches": results, "warning": "Explicit manifest and checksum verification only; does not establish provider ID equivalence or tactical validity."}
